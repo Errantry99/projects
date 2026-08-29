@@ -12,6 +12,8 @@
     --ember: #8C7F6B;       /* ink in the dark     */
     --signal: #C0843F;      /* the one accent: instrumentation only */
     --bloom: 0 0 0 rgba(0,0,0,0);
+    --halo: 0 0 0 rgba(0,0,0,0);
+    --halo-glow: rgba(0,0,0,0);
     --prose: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", Times, serif;
     --instrument: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
@@ -68,6 +70,7 @@
     color: var(--ink);
   }
   #caret {
+    box-shadow: var(--bloom);
     display: inline-block;
     width: 0.13em;
     height: 0.86em;
@@ -95,7 +98,8 @@
     font-size: 15px;
     line-height: 1.45;
     letter-spacing: 0.005em;
-    opacity: 0.62;
+    text-shadow: var(--halo);
+    opacity: 0.72;
     min-height: 2.9em;
     text-wrap: balance;
     transition: opacity 420ms ease;
@@ -103,6 +107,7 @@
   #caption.turning { opacity: 0; }
 
   #readout {
+    text-shadow: var(--halo);
     display: flex;
     align-items: center;
     gap: 12px;
@@ -196,9 +201,11 @@
     cursor: pointer;
   }
   #sound { right: max(10px, env(safe-area-inset-right)); z-index: 30; }
+  #sound svg { filter: drop-shadow(0 0 2px var(--halo-glow)); }
   .ghost:focus-visible { outline: 1px solid currentColor; outline-offset: -6px; border-radius: 6px; }
 
   #paused {
+    text-shadow: var(--halo);
     position: absolute;
     left: 0;
     right: 0;
@@ -414,12 +421,20 @@
     minAcross: 30,
     maxAcross: 60,
     lineHeight: 1.58,
+    caretAnchor: 0.66,             // where the caret sits across a zoomed line: right of centre,
+                                   // so the words just written keep the room, not the empty page ahead
+    gutterFraction: 0.07,          // whitespace kept at the leading edge of a zoomed line
+    gutterMinPx: 18,
+    followTauMs: 110,              // horizontal follow: smoothing time constant
     bgSurface: '#F2E8DB',
     bgDeep: '#000000',
     inkSurface: '#1A1714',
     inkEmber: '#8C7F6B',
-    emberTriggerLightness: 0.40,
-    emberCrossfadeDepth: 0.15,
+    inkCrossWindow: 0.14,          // depth span of the ink crossover
+    haloColor: '#F6EEE0',          // legibility halo through the crossover
+    haloOnsetContrast: 6.0,        // halo fades in as ink/background contrast falls below this
+    haloInnerEm: 0.055,            // tight rim
+    haloOuterEm: 0.17,             // soft spread
     bloomRadiusEm: 0.4,
     bloomAlpha: 0.5,
     volume: 0.7
@@ -471,19 +486,39 @@
     var a = rgbToLab(hexToRgb(hexA)), b = rgbToLab(hexToRgb(hexB));
     return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
   }
+  function rgba(hex, alpha) {
+    var c = hexToRgb(hex);
+    return 'rgba(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ',' + alpha.toFixed(3) + ')';
+  }
   function css(lab, alpha) {
     var c = labToRgb(lab);
     var r = Math.round(c[0] * 255), g = Math.round(c[1] * 255), b = Math.round(c[2] * 255);
     return alpha === undefined ? 'rgb(' + r + ',' + g + ',' + b + ')'
                                : 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(3) + ')';
   }
+  function relLum(rgb) {
+    return 0.2126 * toLinear(rgb[0]) + 0.7152 * toLinear(rgb[1]) + 0.0722 * toLinear(rgb[2]);
+  }
+  function contrastOf(y1, y2) {
+    var hi = Math.max(y1, y2), lo = Math.min(y1, y2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  // The ink has to cross the background's luminance somewhere — there is no
+  // colour that contrasts with both paper and black. Cross where the two inks
+  // are equally legible, which is the least bad place for it to happen, and
+  // carry the words across the crossing with a halo.
+  var inkY = relLum(hexToRgb(CONFIG.inkSurface));
+  var emberY = relLum(hexToRgb(CONFIG.inkEmber));
+  var haloY = relLum(hexToRgb(CONFIG.haloColor));
   var emberStart = (function () {
     var lo = 0, hi = 1;
-    for (var i = 0; i < 40; i++) {
+    for (var i = 0; i < 50; i++) {
       var mid = (lo + hi) / 2;
-      if (mix(CONFIG.bgSurface, CONFIG.bgDeep, mid)[0] < CONFIG.emberTriggerLightness) hi = mid; else lo = mid;
+      var bgY = relLum(labToRgb(mix(CONFIG.bgSurface, CONFIG.bgDeep, mid)));
+      if (contrastOf(bgY, inkY) < contrastOf(bgY, emberY)) hi = mid; else lo = mid;
     }
-    return hi;
+    return (lo + hi) / 2;
   })();
 
   /* ==================================================================
@@ -663,8 +698,9 @@
   }
 
   var lastFont = 0, lastW = 0;
+  var view = { tx: 0, txReady: false };
 
-  function draw(depth) {
+  function draw(depth, dt) {
     var vw = el.viewport.clientWidth, vh = el.viewport.clientHeight;
     var surface = acrossAtSurface();
     var across = lerp(surface, CONFIG.wordsAcrossDeep * CONFIG.charsPerWord, easeInOutSine(depth));
@@ -681,20 +717,55 @@
     var cx = el.caret.offsetLeft, cy = el.caret.offsetTop;
     var cw = el.caret.offsetWidth, chh = el.caret.offsetHeight || font;
     var ty = vh / 2 - (cy + chh / 2);
-    var tx = colWidth <= vw ? (vw - colWidth) / 2 : clamp(vw / 2 - (cx + cw / 2), vw - colWidth, 0);
-    el.mirror.style.transform = 'translate3d(' + tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
+    // Keep a gutter at the leading edge so a zoomed line never runs into the
+    // frame, and glide toward the target instead of stepping once per keystroke.
+    var gutter = Math.max(CONFIG.gutterMinPx, vw * CONFIG.gutterFraction);
+    // As the column outgrows the frame the anchor eases from the centre to
+    // right of centre: what is behind the caret is worth screen, what is ahead
+    // of it is blank page.
+    var anchor = lerp(0.5, CONFIG.caretAnchor, smoothstep(1, 1.4, colWidth / vw));
+    var targetTx = colWidth <= vw
+      ? (vw - colWidth) / 2
+      : clamp(vw * anchor - (cx + cw / 2), vw - colWidth - gutter, gutter);
+    if (view.txReady && dt > 0) {
+      view.tx += (targetTx - view.tx) * (1 - Math.exp(-dt / CONFIG.followTauMs));
+      // the glide may lag, but never far enough to carry the caret off the frame
+      view.tx = clamp(view.tx, gutter - cx - cw, vw - gutter - cx);
+    } else {
+      view.tx = targetTx;
+      view.txReady = true;
+    }
+    el.mirror.style.transform = 'translate3d(' + view.tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
 
     // colour: pastel to black on an even perceptual path, ink to ember once dark
     var bg = mix(CONFIG.bgSurface, CONFIG.bgDeep, depth);
-    var emberT = bg[0] < CONFIG.emberTriggerLightness
-      ? clamp01((depth - emberStart) / CONFIG.emberCrossfadeDepth) : 0;
+    var half = CONFIG.inkCrossWindow / 2;
+    var emberT = smoothstep(emberStart - half, emberStart + half, depth);
     var ink = mix(CONFIG.inkSurface, CONFIG.inkEmber, emberT);
+
+    // Through the crossing the ink is worth little against the background, so
+    // a halo carries the letterforms until the ember has contrast of its own.
+    var contrast = contrastOf(relLum(labToRgb(ink)), relLum(labToRgb(bg)));
+    var halo = clamp01((CONFIG.haloOnsetContrast - contrast) / (CONFIG.haloOnsetContrast - 1));
+
+    var shadows = [], chromeHalo = '0 0 0 rgba(0,0,0,0)', haloGlow = 'rgba(0,0,0,0)';
+    if (halo > 0.01) {
+      shadows.push('0 0 ' + CONFIG.haloInnerEm + 'em ' + rgba(CONFIG.haloColor, halo));
+      shadows.push('0 0 ' + CONFIG.haloOuterEm + 'em ' + rgba(CONFIG.haloColor, halo * 0.75));
+      // the chrome is small type, so it gets a tighter, denser rim
+      chromeHalo = '0 0 2px ' + rgba(CONFIG.haloColor, halo * 0.9) + ', 0 0 6px ' + rgba(CONFIG.haloColor, halo * 0.6);
+      haloGlow = rgba(CONFIG.haloColor, halo * 0.8);
+    }
+    if (emberT > 0) {
+      shadows.push('0 0 ' + (CONFIG.bloomRadiusEm * emberT).toFixed(3) + 'em ' + css(ink, CONFIG.bloomAlpha * emberT));
+    }
+
     var root = document.documentElement.style;
     root.setProperty('--bg', css(bg));
     root.setProperty('--ink', css(ink));
-    root.setProperty('--bloom', emberT > 0
-      ? '0 0 ' + (CONFIG.bloomRadiusEm * emberT).toFixed(3) + 'em ' + css(ink, CONFIG.bloomAlpha * emberT)
-      : '0 0 0 rgba(0,0,0,0)');
+    root.setProperty('--bloom', shadows.length ? shadows.join(', ') : '0 0 0 rgba(0,0,0,0)');
+    root.setProperty('--halo', chromeHalo);
+    root.setProperty('--halo-glow', haloGlow);
   }
 
   function drawHud(depth) {
@@ -917,7 +988,7 @@
     if (!said.ember && depth > emberStart + 0.01) { said.ember = true; caption(CAPTIONS.ember); }
     if (!said.deep && depth > 0.9) { said.deep = true; caption(CAPTIONS.deep); }
 
-    draw(depth);
+    draw(depth, playing && !paused ? dt : 0);
     drawHud(depth);
     audio.update(depth, run.state === S.SURFACING ? clamp01(run.surfacing / CONFIG.surfacingMs) : 0);
     audio.pulses(depth, run.rhythmGain);
@@ -980,6 +1051,7 @@
     watchedMs = 0;
     paused = false;
     el.paused.classList.remove('on');
+    view.txReady = false;
     el.intro.hidden = true;
     el.end.hidden = true;
     audio.start();
