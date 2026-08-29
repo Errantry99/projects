@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>channel</title>
+<style>
+  :root {
+    --bg: #F2E8DB;
+    --ink: #1A1714;
+    --bloom: 0 0 0 rgba(0,0,0,0);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", Times, serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif);
+    -webkit-font-smoothing: antialiased;
+  }
+  body { cursor: default; }
+  body.deep { cursor: none; }
+
+  #stage { position: fixed; inset: 0; }
+
+  /* ---------- editor ---------- */
+  #viewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 14%, rgba(0,0,0,1) 86%, rgba(0,0,0,0) 100%);
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 14%, rgba(0,0,0,1) 86%, rgba(0,0,0,0) 100%);
+  }
+  #mirror {
+    position: absolute;
+    top: 0;
+    left: 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: normal;
+    line-height: 1.6;
+    letter-spacing: 0.005em;
+    text-shadow: var(--bloom);
+    color: var(--ink);
+  }
+  #caret {
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 0.04em;
+  }
+  #caret.at-end {
+    display: inline-block;
+    width: 0.14em;
+    height: 0.86em;
+    opacity: 0.88;
+    vertical-align: -0.1em;
+    border-radius: 0.04em;
+  }
+  #caret.blink { opacity: 0.42; }
+
+  #input {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    outline: 0;
+    resize: none;
+    opacity: 0;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    z-index: 0;
+  }
+
+  /* ---------- chrome ---------- */
+  #chrome {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #chrome .corner {
+    position: absolute;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: lowercase;
+    opacity: 0.5;
+  }
+  #chromeTitle { top: 26px; left: 30px; }
+  #chromeHint  { bottom: 26px; left: 30px; }
+  #chromeVol   { bottom: 22px; right: 30px; pointer-events: auto; display: flex; align-items: center; gap: 10px; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 92px;
+    height: 2px;
+    background: currentColor;
+    opacity: 0.55;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: currentColor;
+    border: none;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: currentColor;
+    border: none;
+  }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    z-index: 10;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .overlay[hidden] { display: none !important; }
+
+  #idle h1 {
+    font-weight: 400;
+    font-size: clamp(30px, 5vw, 46px);
+    letter-spacing: 0.3em;
+    margin: 0 0 34px 0;
+    text-indent: 0.3em;
+    opacity: 0.92;
+  }
+  #idle .lede { font-size: 17px; letter-spacing: 0.06em; opacity: 0.75; margin: 0 0 12px 0; }
+  #idle .fine { font-size: 12.5px; letter-spacing: 0.05em; opacity: 0.42; margin: 0 0 40px 0; }
+  #idle .vol  { display: flex; align-items: center; gap: 12px; font-size: 12px; letter-spacing: 0.14em; opacity: 0.5; }
+
+  #hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12%;
+    text-align: center;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    color: var(--ink);
+    opacity: 0;
+    transition: opacity 700ms ease;
+    pointer-events: none;
+    z-index: 8;
+  }
+  #hint.show { opacity: 0.4; }
+
+  /* ---------- summary ---------- */
+  #summary {
+    justify-content: flex-start;
+    align-items: center;
+    overflow-y: auto;
+    padding: 7vh 24px 10vh;
+    background: #F2E8DB;
+    color: #1A1714;
+  }
+  #summary .inner { width: min(680px, 100%); text-align: left; }
+  #summary h2 {
+    font-weight: 400;
+    font-size: 15px;
+    letter-spacing: 0.28em;
+    text-transform: lowercase;
+    opacity: 0.5;
+    margin: 0 0 34px 0;
+  }
+  #summary .phrase {
+    font-size: clamp(26px, 4.4vw, 38px);
+    letter-spacing: 0.04em;
+    margin: 0 0 38px 0;
+    opacity: 0.9;
+  }
+  #summary .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 22px 28px;
+    margin: 0 0 42px 0;
+    border-top: 1px solid rgba(26,23,20,0.16);
+    padding-top: 26px;
+  }
+  #summary .stat .k { font-size: 11.5px; letter-spacing: 0.16em; text-transform: lowercase; opacity: 0.45; }
+  #summary .stat .v { font-size: 25px; letter-spacing: 0.01em; margin-top: 5px; }
+  #summary .stat .v small { font-size: 13px; opacity: 0.5; letter-spacing: 0.06em; }
+  #summary .textwrap {
+    border-top: 1px solid rgba(26,23,20,0.16);
+    padding-top: 26px;
+  }
+  #summary .textrow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  #summary .textrow .k { font-size: 11.5px; letter-spacing: 0.16em; opacity: 0.45; }
+  #summary pre {
+    font-family: var(--serif);
+    font-size: 16px;
+    line-height: 1.62;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    margin: 0;
+    opacity: 0.86;
+    max-height: 46vh;
+    overflow-y: auto;
+  }
+  button {
+    font-family: var(--serif);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: lowercase;
+    background: transparent;
+    color: inherit;
+    border: 1px solid rgba(26,23,20,0.3);
+    border-radius: 2px;
+    padding: 7px 15px;
+    cursor: pointer;
+    transition: background 200ms ease;
+  }
+  button:hover { background: rgba(26,23,20,0.06); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="viewport"><div id="mirror"></div></div>
+  <textarea id="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+
+  <div id="chrome">
+    <div class="corner" id="chromeTitle">channel</div>
+    <div class="corner" id="chromeHint">esc twice to surface</div>
+    <div class="corner" id="chromeVol">
+      <span>volume</span>
+      <input id="volWriting" type="range" min="0" max="100" value="70" aria-label="volume">
+    </div>
+  </div>
+
+  <div id="hint">press esc again to surface</div>
+
+  <div class="overlay" id="idle">
+    <h1>channel</h1>
+    <p class="lede">press any key to begin</p>
+    <p class="fine">nothing is saved &mdash; refreshing loses the text</p>
+    <div class="vol">
+      <span>volume</span>
+      <input id="volIdle" type="range" min="0" max="100" value="70" aria-label="volume">
+    </div>
+  </div>
+
+  <div class="overlay" id="summary" hidden>
+    <div class="inner">
+      <h2>session</h2>
+      <div class="phrase" id="sumPhrase"></div>
+      <div class="stats" id="sumStats"></div>
+      <div class="textwrap">
+        <div class="textrow">
+          <span class="k">what you wrote</span>
+          <button id="copyBtn">copy</button>
+        </div>
+        <pre id="sumText"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  /* =====================================================================
+     T1 — CONFIG
+     Every tuning constant lives here, one per line.
+     ===================================================================== */
+  var CONFIG = {
+    debug: false,                    // log state transitions to the console
+    timeScale: 1,                    // multiplies all session time (20 = 20x faster, for testing)
+
+    buildMinutes: 20,                // minutes of continuous WRITING to reach depth 1.0
+    thinkingMs: 2000,                // silence after which WRITING -> THINKING
+    stoppedMs: 30000,                // silence after which THINKING -> STOPPED
+    decayRate: 1 / 3,               // depth decay speed in STOPPED, relative to build rate
+    recoveryRate: 2,                 // depth build speed while below the high-water mark
+
+    cvLow: 0.35,                     // CV at or below this = maximum rhythm gain
+    cvHigh: 0.60,                    // CV at or above this = zero rhythm gain
+    gainAtLowCV: 1.0,                // rhythm gain when CV <= cvLow
+    gainAtHighCV: 0.0,               // rhythm gain when CV >= cvHigh
+    ikiBufferSize: 24,               // rolling inter-keystroke-interval buffer length
+    ikiMaxMs: 2000,                  // intervals longer than this are pauses, not rhythm
+    ikiMinSamples: 6,                // samples needed before rhythm gain is trusted
+    gainSmoothingMs: 900,            // smoothing time constant for the rhythm gain
+    gainSilenceDecayMs: 2500,        // rhythm gain falls to zero this fast when not typing
+
+    bpmMin: 70,                      // derived tempo folded into this range (low end)
+    bpmMax: 110,                     // derived tempo folded into this range (high end)
+    bpmSnap: 5,                      // derived tempo snapped to this grid
+    bpmDefault: 90,                  // tempo before enough samples exist
+    tempoGlideMs: 4000,              // time to glide from one tempo to the next
+
+    lineChars: 60,                   // fixed wrap width, in average characters
+    charsAcrossSurface: 60,          // characters visible across the viewport at depth 0
+    wordsAcrossDeep: 1.5,            // words visible across the viewport at depth 1
+    charsPerWord: 6.6,               // average word length incl. trailing space
+    contentWidthFraction: 0.9,       // fraction of viewport width the text column may use
+    minFontPx: 13,                   // never render smaller than this
+    lineHeight: 1.6,                 // multiple of font size
+
+    bgSurface: '#F2E8DB',            // background at depth 0
+    bgDeep: '#000000',               // background at depth 1
+    inkSurface: '#1A1714',           // text colour near the surface
+    inkEmber: '#8C7F6B',             // text colour in the dark
+    emberTriggerLightness: 0.40,     // background lightness at which the ember crossfade starts
+    emberCrossfadeDepth: 0.15,       // depth span over which ink crossfades to ember
+    bloomRadiusEm: 0.42,             // ember bloom radius, in em
+    bloomAlpha: 0.5,                 // ember bloom strength at full crossfade
+
+    chromeFadeMs: 90000,             // WRITING time over which the chrome fades away
+    caretBlinkMs: 1100,              // caret blink period while idle at the keyboard
+    deepCursorHideDepth: 0.25,       // hide the mouse pointer past this depth
+
+    escHintMs: 3000,                 // window in which a second Esc surfaces
+    surfacingMs: 4000,               // cooling ramp: visuals and audio to the surface
+    maxFrameMs: 60000,               // largest single frame the clock will credit
+
+    audioMasterDefault: 0.7,         // starting master volume (0..1)
+    droneRootHz: 55,                 // fundamental sine
+    droneDetuneHz: 55.4,             // triangle partner, slightly detuned
+    droneOctaveHz: 110,              // octave voice
+    droneOctaveDepth: 0.7,           // depth above which the octave fades in
+    droneGainLow: 0.1,               // drone gain at depth 0
+    droneGainHigh: 0.5,              // drone gain at depth 1
+    droneFilterLowHz: 180,           // lowpass cutoff at depth 0
+    droneFilterHighHz: 780,          // lowpass cutoff at depth 1
+    droneLfoHz: 0.05,                // cutoff LFO rate
+    droneLfoDepthHz: 140,            // cutoff LFO excursion
+    pulseRootHz: 220,                // pulse blip root
+    pulseFifthRatio: 1.5,            // fifth above the root
+    pulseGain: 0.22,                 // pulse gain ceiling
+    pulseAttackMs: 18,               // blip attack
+    pulseDecayMs: 260,               // blip decay
+    pulseFifthDepth: 0.8,            // depth above which root/fifth alternation begins
+    surfacingFilterHz: 90,           // lowpass sweep target while surfacing
+    schedulerLookaheadMs: 220,       // audio scheduling horizon
+
+    depthStops: [0.25, 0.55, 0.85],  // surface / descending / deep / channel boundaries
+    depthPhrases: ['surface', 'descending', 'deep', 'channel']
+  };
+
+  /* =====================================================================
+     small utilities
+     ===================================================================== */
+  var STATE = { IDLE: 'IDLE', WRITING: 'WRITING', THINKING: 'THINKING', STOPPED: 'STOPPED', SURFACING: 'SURFACING', SUMMARY: 'SUMMARY' };
+
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+  function clamp01(v) { return clamp(v, 0, 1); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function easeInOutSine(t) { return -(Math.cos(Math.PI * clamp01(t)) - 1) / 2; }
+  function smoothstep(edge0, edge1, x) {
+    if (edge1 === edge0) return x < edge0 ? 0 : 1;
+    var t = clamp01((x - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+  }
+  function median(arr) {
+    if (!arr.length) return 0;
+    var s = arr.slice().sort(function (a, b) { return a - b; });
+    var m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  /* ---- perceptual colour (Oklab) so the fade is even, not sRGB-lumpy ---- */
+  function hexToRgb(hex) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+  }
+  function srgbToLinear(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function linearToSrgb(c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; }
+  function rgbToOklab(rgb) {
+    var r = srgbToLinear(rgb[0]), g = srgbToLinear(rgb[1]), b = srgbToLinear(rgb[2]);
+    var l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    var m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    var s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [
+      0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    ];
+  }
+  function oklabToRgb(lab) {
+    var l_ = lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2];
+    var m_ = lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2];
+    var s_ = lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2];
+    var l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+    var r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+    var g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+    var b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+    return [clamp01(linearToSrgb(r)), clamp01(linearToSrgb(g)), clamp01(linearToSrgb(b))];
+  }
+  function mixOklab(hexA, hexB, t) {
+    var a = rgbToOklab(hexToRgb(hexA)), b = rgbToOklab(hexToRgb(hexB));
+    return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  }
+  function labToCss(lab) {
+    var rgb = oklabToRgb(lab);
+    return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+  }
+  function labToRgba(lab, alpha) {
+    var rgb = oklabToRgb(lab);
+    return 'rgba(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ',' + alpha.toFixed(3) + ')';
+  }
+
+  /* =====================================================================
+     T3 — depth model & state machine (single source of truth)
+     ===================================================================== */
+  var session = {
+    state: STATE.IDLE,
+    depth: 0,             // 0..1
+    highWater: 0,         // deepest depth reached this session
+    sinceKeyMs: 0,        // scaled time since the last keystroke
+    writingMs: 0,         // scaled time spent in WRITING (drives the chrome fade)
+    startedAt: 0,         // real wall clock, ms
+    endedAt: 0,
+    keystrokes: 0,
+    runMs: 0,             // current unbroken typing run (real ms)
+    longestRunMs: 0,      // real ms
+    lastKeyRealAt: 0,
+    surfacingMs: 0        // progress through the cooling ramp
+  };
+
+  var buildRatePerMs = 1 / (CONFIG.buildMinutes * 60 * 1000);
+
+  function setState(next) {
+    if (session.state === next) return;
+    if (CONFIG.debug) {
+      console.log('[channel] ' + session.state + ' -> ' + next +
+        ' @ depth ' + session.depth.toFixed(4) + ' t=' + Math.round(performance.now()));
+    }
+    session.state = next;
+  }
+
+  function noteKeystroke(now) {
+    // called for every printable keystroke and backspace
+    var realGap = session.lastKeyRealAt ? Math.max(0, now - session.lastKeyRealAt) : 0;
+    if (session.state === STATE.WRITING && session.sinceKeyMs <= CONFIG.thinkingMs) {
+      session.runMs += realGap;                       // an unbroken run, measured in real time
+      if (session.runMs > session.longestRunMs) session.longestRunMs = session.runMs;
+    } else {
+      session.runMs = 0;
+    }
+    session.lastKeyRealAt = now;
+    session.sinceKeyMs = 0;
+    session.keystrokes++;
+    setState(STATE.WRITING);
+    rhythm.push(now);
+  }
+
+  // Integrated in slices so a slow frame (or a large timeScale) can never
+  // overshoot a threshold and lose the writing time that preceded it.
+  function updateDepth(dtMs) {
+    if (session.state === STATE.IDLE || session.state === STATE.SUMMARY) return;
+
+    if (session.state === STATE.SURFACING) {
+      session.surfacingMs += dtMs;
+      return;
+    }
+
+    var remaining = dtMs * CONFIG.timeScale;
+    var guard = 0;
+    while (remaining > 0 && guard++ < 8) {
+      var step = remaining;
+      if (session.state === STATE.WRITING) {
+        step = Math.min(step, Math.max(0, CONFIG.thinkingMs - session.sinceKeyMs));
+        if (step <= 0) { setState(STATE.THINKING); continue; }
+      } else if (session.state === STATE.THINKING) {
+        step = Math.min(step, Math.max(0, CONFIG.stoppedMs - session.sinceKeyMs));
+        if (step <= 0) { setState(STATE.STOPPED); continue; }
+      }
+
+      if (session.state === STATE.WRITING) {
+        session.writingMs += step;
+        var rate = buildRatePerMs * (session.depth < session.highWater ? CONFIG.recoveryRate : 1);
+        session.depth = clamp01(session.depth + rate * step);
+        if (session.depth > session.highWater) session.highWater = session.depth;
+      } else if (session.state === STATE.STOPPED) {
+        session.depth = clamp01(session.depth - buildRatePerMs * CONFIG.decayRate * step);
+      }
+      // THINKING holds: depth is untouched, visuals freeze.
+
+      session.sinceKeyMs += step;
+      remaining -= step;
+    }
+  }
+
+  // The depth the visuals and audio actually render (cooling folds it back to 0).
+  function renderDepth() {
+    if (session.state === STATE.SURFACING) {
+      var t = clamp01(session.surfacingMs / CONFIG.surfacingMs);
+      return session.depth * (1 - easeInOutSine(t));
+    }
+    return session.depth;
+  }
+
+  function depthPhrase(d) {
+    var stops = CONFIG.depthStops;
+    for (var i = 0; i < stops.length; i++) if (d < stops[i]) return CONFIG.depthPhrases[i];
+    return CONFIG.depthPhrases[stops.length];
+  }
+
+  /* =====================================================================
+     T5 — rhythm engine
+     ===================================================================== */
+  var rhythm = {
+    buffer: [],
+    lastKeyAt: 0,
+    cv: 1,
+    gainTarget: 0,
+    gain: 0,
+    bpm: CONFIG.bpmDefault,
+    bpmTarget: CONFIG.bpmDefault,
+    bpmFrom: CONFIG.bpmDefault,
+    glideStart: -1,
+    regSum: 0,
+    regCount: 0,
+
+    reset: function () {
+      this.buffer.length = 0;
+      this.lastKeyAt = 0;
+      this.cv = 1;
+      this.gainTarget = 0;
+      this.gain = 0;
+      this.bpm = this.bpmTarget = this.bpmFrom = CONFIG.bpmDefault;
+      this.glideStart = -1;
+      this.regSum = 0;
+      this.regCount = 0;
+    },
+
+    push: function (now) {
+      if (this.lastKeyAt) {
+        var iki = now - this.lastKeyAt;
+        if (iki > 0 && iki <= CONFIG.ikiMaxMs) {      // pauses never pollute the buffer
+          this.buffer.push(iki);
+          if (this.buffer.length > CONFIG.ikiBufferSize) this.buffer.shift();
+        }
+      }
+      this.lastKeyAt = now;
+      this.recompute(now);
+    },
+
+    recompute: function (now) {
+      var n = this.buffer.length;
+      if (n < 2) { this.gainTarget = 0; return; }
+
+      var sum = 0, i;
+      for (i = 0; i < n; i++) sum += this.buffer[i];
+      var mean = sum / n;
+      var varSum = 0;
+      for (i = 0; i < n; i++) { var d = this.buffer[i] - mean; varSum += d * d; }
+      var sd = Math.sqrt(varSum / n);
+      this.cv = mean > 0 ? sd / mean : 1;
+
+      // CV -> rhythm gain: full below cvLow, none above cvHigh, smooth between.
+      var g = lerp(CONFIG.gainAtLowCV, CONFIG.gainAtHighCV, smoothstep(CONFIG.cvLow, CONFIG.cvHigh, this.cv));
+      if (n < CONFIG.ikiMinSamples) g *= n / CONFIG.ikiMinSamples;   // ramp in, never pop in
+      this.gainTarget = clamp01(g);
+
+      // session-long regularity, sampled once per keystroke
+      this.regSum += clamp01(1 - smoothstep(CONFIG.cvLow, CONFIG.cvHigh, this.cv));
+      this.regCount++;
+
+      // median IKI -> BPM, folded into range, snapped, then glided
+      var med = median(this.buffer);
+      if (med > 0) {
+        var bpm = 60000 / med;
+        while (bpm > CONFIG.bpmMax) bpm /= 2;
+        while (bpm < CONFIG.bpmMin) bpm *= 2;
+        bpm = clamp(bpm, CONFIG.bpmMin, CONFIG.bpmMax);
+        var snapped = clamp(Math.round(bpm / CONFIG.bpmSnap) * CONFIG.bpmSnap, CONFIG.bpmMin, CONFIG.bpmMax);
+        if (snapped !== this.bpmTarget) {
+          this.bpmFrom = this.bpm;
+          this.bpmTarget = snapped;
+          this.glideStart = now;
+        }
+      }
+    },
+
+    update: function (now, dtMs) {
+      // gain follows its target smoothly; silence bleeds it away
+      var idleMs = this.lastKeyAt ? (now - this.lastKeyAt) : Infinity;
+      var target = idleMs > CONFIG.ikiMaxMs ? 0 : this.gainTarget;
+      var tau = idleMs > CONFIG.ikiMaxMs ? CONFIG.gainSilenceDecayMs : CONFIG.gainSmoothingMs;
+      this.gain += (target - this.gain) * (1 - Math.exp(-dtMs / tau));
+      if (this.gain < 1e-4) this.gain = 0;
+
+      if (this.glideStart >= 0) {
+        var t = clamp01((now - this.glideStart) / CONFIG.tempoGlideMs);
+        this.bpm = lerp(this.bpmFrom, this.bpmTarget, easeInOutSine(t));
+        if (t >= 1) { this.bpm = this.bpmTarget; this.glideStart = -1; }
+      }
+    },
+
+    regularityScore: function () {
+      if (!this.regCount) return 0;
+      return Math.round((this.regSum / this.regCount) * 100);
+    }
+  };
+
+  /* =====================================================================
+     T2 — editor core: hidden textarea + rendered mirror + block caret
+     ===================================================================== */
+  var el = {
+    viewport: document.getElementById('viewport'),
+    mirror: document.getElementById('mirror'),
+    input: document.getElementById('input'),
+    chrome: document.getElementById('chrome'),
+    hint: document.getElementById('hint'),
+    idle: document.getElementById('idle'),
+    summary: document.getElementById('summary'),
+    volIdle: document.getElementById('volIdle'),
+    volWriting: document.getElementById('volWriting')
+  };
+
+  var pre = document.createTextNode('');
+  var caretEl = document.createElement('span');
+  var post = document.createTextNode('');
+  caretEl.id = 'caret';
+  el.mirror.appendChild(pre);
+  el.mirror.appendChild(caretEl);
+  el.mirror.appendChild(post);
+
+  var lastText = null;
+  var lastCaret = -1;
+
+  function renderText(force) {
+    var text = el.input.value;
+    var pos = clamp(el.input.selectionStart, 0, text.length);
+    if (!force && text === lastText && pos === lastCaret) return false;
+    lastText = text;
+    lastCaret = pos;
+
+    var before = text.slice(0, pos);
+    var rest = text.slice(pos);
+    var caretChar, after;
+    if (rest.length === 0 || rest.charAt(0) === '\n') {
+      caretChar = '';                  // slim bar at a line end
+      after = rest;
+      caretEl.className = 'at-end';
+    } else {
+      caretEl.className = '';
+      caretChar = rest.charAt(0);
+      after = rest.slice(1);
+    }
+    pre.nodeValue = before;
+    caretEl.textContent = caretChar;
+    post.nodeValue = after;
+    return true;
+  }
+
+  /* =====================================================================
+     T4 — visual system: zoom, colour, ember, chrome fade
+     ===================================================================== */
+  var metrics = { avgCharRatio: 0.5 };
+
+  function measureFont() {
+    var probe = document.createElement('span');
+    var sample = 'the quick brown fox jumps over the lazy dog and writes on ';
+    probe.textContent = sample;
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font-size:200px;line-height:1;left:-99999px;top:0;';
+    probe.style.fontFamily = getComputedStyle(el.mirror).fontFamily;
+    probe.style.letterSpacing = getComputedStyle(el.mirror).letterSpacing;
+    document.body.appendChild(probe);
+    metrics.avgCharRatio = probe.getBoundingClientRect().width / (200 * sample.length);
+    document.body.removeChild(probe);
+    if (!isFinite(metrics.avgCharRatio) || metrics.avgCharRatio <= 0) metrics.avgCharRatio = 0.5;
+  }
+
+  // characters visible across the viewport at a given depth
+  function charsAcross(d) {
+    var deep = CONFIG.wordsAcrossDeep * CONFIG.charsPerWord;
+    return lerp(CONFIG.charsAcrossSurface, deep, easeInOutSine(d));
+  }
+
+  var view = { fontPx: 0, colWidth: 0, tx: 0, ty: 0, bgLab: null, inkLab: null };
+
+  function applyVisuals(d, dtMs, nowReal) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+
+    /* ---- zoom ---- */
+    var across = charsAcross(d);
+    var fontPx = Math.max(CONFIG.minFontPx, (vw * CONFIG.contentWidthFraction) / (across * metrics.avgCharRatio));
+    var colWidth = CONFIG.lineChars * metrics.avgCharRatio * fontPx;
+    if (Math.abs(fontPx - view.fontPx) > 0.005) {
+      view.fontPx = fontPx;
+      view.colWidth = colWidth;
+      el.mirror.style.fontSize = fontPx.toFixed(3) + 'px';
+      el.mirror.style.width = colWidth.toFixed(2) + 'px';
+    }
+    var lineH = fontPx * CONFIG.lineHeight;
+
+    /* ---- caret-anchored typewriter scrolling ---- */
+    var cx = caretEl.offsetLeft;
+    var cy = caretEl.offsetTop;
+    var cw = caretEl.offsetWidth || fontPx * metrics.avgCharRatio;
+    var ch = caretEl.offsetHeight || lineH;
+    var ty = vh / 2 - (cy + ch / 2);
+    var tx;
+    if (colWidth <= vw) {
+      tx = (vw - colWidth) / 2;                       // column fits: keep it centred
+    } else {
+      tx = vw / 2 - (cx + cw / 2);                    // high zoom: follow the caret
+      tx = clamp(tx, vw - colWidth, 0);
+    }
+    if (tx !== view.tx || ty !== view.ty) {
+      view.tx = tx; view.ty = ty;
+      el.mirror.style.transform = 'translate3d(' + tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
+    }
+
+    /* ---- background: perceptually even pastel -> black ---- */
+    var bgLab = mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, d);
+    var bgL = bgLab[0];
+
+    /* ---- ink: ember crossfade once the page has gone dark ---- */
+    // Find the depth at which background lightness crosses the trigger, then
+    // crossfade the ink over the following emberCrossfadeDepth of depth.
+    var emberT = 0;
+    if (bgL < CONFIG.emberTriggerLightness) {
+      var start = emberStartDepth();
+      emberT = clamp01((d - start) / CONFIG.emberCrossfadeDepth);
+    }
+    var inkLab = mixOklab(CONFIG.inkSurface, CONFIG.inkEmber, emberT);
+
+    var root = document.documentElement.style;
+    root.setProperty('--bg', labToCss(bgLab));
+    root.setProperty('--ink', labToCss(inkLab));
+    var bloom = emberT > 0
+      ? '0 0 ' + (CONFIG.bloomRadiusEm * emberT).toFixed(3) + 'em ' + labToRgba(inkLab, CONFIG.bloomAlpha * emberT)
+      : '0 0 0 rgba(0,0,0,0)';
+    root.setProperty('--bloom', bloom);
+    document.body.style.background = labToCss(bgLab);
+
+    /* ---- chrome fade over the first 90 s of WRITING ---- */
+    var chromeOpacity = 1 - clamp01(session.writingMs / CONFIG.chromeFadeMs);
+    if (session.state === STATE.SURFACING) chromeOpacity = 0;
+    el.chrome.style.opacity = chromeOpacity.toFixed(3);
+    el.chrome.style.pointerEvents = chromeOpacity > 0.05 ? '' : 'none';
+
+    document.body.classList.toggle('deep', d > CONFIG.deepCursorHideDepth);
+
+    /* ---- caret blink: steady while typing, breathing while paused ---- */
+    var blinking = session.state !== STATE.WRITING && session.state !== STATE.IDLE;
+    var on = !blinking || (Math.floor(nowReal / (CONFIG.caretBlinkMs / 2)) % 2 === 0);
+    caretEl.classList.toggle('blink', !on);
+  }
+
+  var _emberStart = null;
+  function emberStartDepth() {
+    if (_emberStart !== null) return _emberStart;
+    var lo = 0, hi = 1;
+    for (var i = 0; i < 40; i++) {              // bisect for the trigger depth
+      var mid = (lo + hi) / 2;
+      if (mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, mid)[0] < CONFIG.emberTriggerLightness) hi = mid; else lo = mid;
+    }
+    _emberStart = hi;
+    return _emberStart;
+  }
+
+  /* =====================================================================
+     T6 — audio system
+     ===================================================================== */
+  var audio = {
+    ctx: null,
+    ready: false,
+    master: null,       // user volume
+    sessionGain: null,  // surfacing ramp
+    filter: null,       // shared lowpass
+    droneGain: null,
+    octaveGain: null,
+    lfoGain: null,
+    pulseBus: null,
+    nextNoteAt: 0,
+    noteIndex: 0,
+    volume: CONFIG.audioMasterDefault,
+
+    start: function () {
+      if (this.ready) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = this.ctx = new AC();
+      var t = ctx.currentTime;
+
+      this.master = ctx.createGain();
+      this.master.gain.setValueAtTime(this.volume, t);
+      this.master.connect(ctx.destination);
+
+      this.sessionGain = ctx.createGain();
+      this.sessionGain.gain.setValueAtTime(1, t);
+      this.sessionGain.connect(this.master);
+
+      this.filter = ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.Q.setValueAtTime(0.7, t);
+      this.filter.frequency.setValueAtTime(CONFIG.droneFilterLowHz, t);
+      this.filter.connect(this.sessionGain);
+
+      this.droneGain = ctx.createGain();
+      this.droneGain.gain.setValueAtTime(0.0001, t);
+      this.droneGain.connect(this.filter);
+
+      var root = ctx.createOscillator();
+      root.type = 'sine';
+      root.frequency.setValueAtTime(CONFIG.droneRootHz, t);
+      root.connect(this.droneGain);
+      root.start(t);
+
+      var partner = ctx.createOscillator();
+      partner.type = 'triangle';
+      partner.frequency.setValueAtTime(CONFIG.droneDetuneHz, t);
+      var partnerGain = ctx.createGain();
+      partnerGain.gain.setValueAtTime(0.55, t);
+      partner.connect(partnerGain).connect(this.droneGain);
+      partner.start(t);
+
+      this.octaveGain = ctx.createGain();
+      this.octaveGain.gain.setValueAtTime(0.0001, t);
+      this.octaveGain.connect(this.droneGain);
+      var octave = ctx.createOscillator();
+      octave.type = 'sine';
+      octave.frequency.setValueAtTime(CONFIG.droneOctaveHz, t);
+      octave.connect(this.octaveGain);
+      octave.start(t);
+
+      var lfo = ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.setValueAtTime(CONFIG.droneLfoHz, t);
+      this.lfoGain = ctx.createGain();
+      this.lfoGain.gain.setValueAtTime(CONFIG.droneLfoDepthHz, t);
+      lfo.connect(this.lfoGain).connect(this.filter.frequency);
+      lfo.start(t);
+
+      this.pulseBus = ctx.createGain();
+      this.pulseBus.gain.setValueAtTime(1, t);
+      this.pulseBus.connect(this.sessionGain);
+
+      this.nextNoteAt = ctx.currentTime + 0.1;
+      this.ready = true;
+      if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+    },
+
+    setVolume: function (v) {
+      this.volume = clamp01(v);
+      if (this.ready) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.02);
+    },
+
+    // continuous parameter tracking — every change is a ramp, never a step
+    update: function (d, dtMs) {
+      if (!this.ready) return;
+      var t = this.ctx.currentTime;
+      var tc = 0.08;
+
+      var droneG = d <= 0 ? 0.0001 : lerp(CONFIG.droneGainLow, CONFIG.droneGainHigh, easeInOutSine(d)) * d;
+      this.droneGain.gain.setTargetAtTime(Math.max(0.0001, droneG), t, tc);
+
+      var oct = smoothstep(CONFIG.droneOctaveDepth, 1, d) * 0.5;
+      this.octaveGain.gain.setTargetAtTime(Math.max(0.0001, oct), t, tc);
+
+      var cutoff = lerp(CONFIG.droneFilterLowHz, CONFIG.droneFilterHighHz, easeInOutSine(d));
+      if (session.state === STATE.SURFACING) {
+        var st = clamp01(session.surfacingMs / CONFIG.surfacingMs);
+        cutoff = lerp(cutoff, CONFIG.surfacingFilterHz, easeInOutSine(st));
+      }
+      this.filter.frequency.setTargetAtTime(cutoff, t, tc);
+      this.lfoGain.gain.setTargetAtTime(CONFIG.droneLfoDepthHz * d, t, tc);
+    },
+
+    beginSurfacing: function () {
+      if (!this.ready) return;
+      var t = this.ctx.currentTime;
+      var g = this.sessionGain.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(0.0001, t + CONFIG.surfacingMs / 1000);
+    },
+
+    stop: function () {
+      if (!this.ready) return;
+      try { this.ctx.close(); } catch (e) {}
+      this.ready = false;
+      this.ctx = null;
+    },
+
+    // eighth-note pulse of the derived tempo; no per-keystroke sounds
+    schedulePulses: function (d) {
+      if (!this.ready || session.state === STATE.SURFACING) return;
+      var level = rhythm.gain * d * CONFIG.pulseGain;
+      var horizon = this.ctx.currentTime + CONFIG.schedulerLookaheadMs / 1000;
+      var eighth = (60 / rhythm.bpm) / 2;
+      if (this.nextNoteAt < this.ctx.currentTime) this.nextNoteAt = this.ctx.currentTime + 0.02;
+      while (this.nextNoteAt < horizon) {
+        if (level > 0.0008) this.blip(this.nextNoteAt, level, d);
+        this.nextNoteAt += eighth;
+        this.noteIndex++;
+      }
+    },
+
+    blip: function (when, level, d) {
+      var ctx = this.ctx;
+      var useFifth = d > CONFIG.pulseFifthDepth && rhythm.cv < CONFIG.cvLow && (this.noteIndex % 2 === 1);
+      var osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(CONFIG.pulseRootHz * (useFifth ? CONFIG.pulseFifthRatio : 1), when);
+      var g = ctx.createGain();
+      var a = CONFIG.pulseAttackMs / 1000, dec = CONFIG.pulseDecayMs / 1000;
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.linearRampToValueAtTime(level, when + a);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + a + dec);
+      osc.connect(g).connect(this.pulseBus);
+      osc.start(when);
+      osc.stop(when + a + dec + 0.05);
+      osc.onended = function () { try { osc.disconnect(); g.disconnect(); } catch (e) {} };
+    }
+  };
+
+  /* =====================================================================
+     T7 — begin & surfacing interaction
+     ===================================================================== */
+  var escArmedUntil = 0;
+  var hintTimer = 0;
+
+  function focusInput() {
+    if (session.state === STATE.SUMMARY) return;
+    try { el.input.focus({ preventScroll: true }); } catch (e) { el.input.focus(); }
+  }
+
+  function beginSession() {
+    if (session.state !== STATE.IDLE) return;
+    audio.start();
+    session.startedAt = Date.now();
+    session.sinceKeyMs = 0;
+    setState(STATE.WRITING);
+    el.idle.hidden = true;
+    focusInput();
+  }
+
+  function showEscHint() {
+    el.hint.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(function () { el.hint.classList.remove('show'); }, CONFIG.escHintMs);
+  }
+
+  function surface() {
+    if (session.state === STATE.SURFACING || session.state === STATE.SUMMARY || session.state === STATE.IDLE) return;
+    el.hint.classList.remove('show');
+    session.endedAt = Date.now();
+    session.surfacingMs = 0;
+    setState(STATE.SURFACING);
+    audio.beginSurfacing();
+    setTimeout(function () {
+      audio.stop();
+      showSummary();
+    }, CONFIG.surfacingMs);
+  }
+
+  function isPrintableKey(e) {
+    return e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (session.state === STATE.SUMMARY) return;
+
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (session.state === STATE.IDLE) return;
+      var now = performance.now();
+      if (now <= escArmedUntil) {
+        escArmedUntil = 0;
+        surface();
+      } else {
+        escArmedUntil = now + CONFIG.escHintMs;
+        showEscHint();
+      }
+      return;
+    }
+
+    if (session.state === STATE.IDLE) {
+      // any key begins; the character itself is never swallowed
+      if (e.key === 'Tab' || e.ctrlKey || e.metaKey || e.altKey) return;
+      beginSession();
+      if (!isPrintableKey(e) && e.key !== 'Enter' && e.key !== 'Backspace') return;
+    }
+
+    if (session.state === STATE.SURFACING) { e.preventDefault(); return; }
+
+    if (document.activeElement !== el.input) focusInput();
+
+    if (isPrintableKey(e) || e.key === 'Enter' || e.key === 'Backspace') {
+      noteKeystroke(performance.now());
+    }
+  }, true);
+
+  el.input.addEventListener('input', function () {
+    if (session.state === STATE.IDLE) beginSession();
+  });
+
+  document.addEventListener('mousedown', function (e) {
+    if (session.state === STATE.SUMMARY) return;
+    if (e.target && e.target.tagName === 'INPUT') return;
+    setTimeout(focusInput, 0);
+  });
+  window.addEventListener('blur', function () { setTimeout(focusInput, 0); });
+  window.addEventListener('resize', function () { measureFont(); view.fontPx = 0; });
+
+  function bindVolume(input) {
+    input.value = String(Math.round(CONFIG.audioMasterDefault * 100));
+    input.addEventListener('input', function () {
+      audio.setVolume(Number(input.value) / 100);
+      el.volIdle.value = input.value;
+      el.volWriting.value = input.value;
+    });
+    input.addEventListener('change', function () { setTimeout(focusInput, 0); });
+  }
+  bindVolume(el.volIdle);
+  bindVolume(el.volWriting);
+
+  /* =====================================================================
+     T8 — summary screen
+     ===================================================================== */
+  function formatDuration(ms) {
+    if (!isFinite(ms)) ms = 0;
+    var s = Math.max(0, Math.round(ms / 1000));
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    if (m < 60) return m + 'm ' + (r < 10 ? '0' : '') + r + 's';
+    var h = Math.floor(m / 60);
+    return h + 'h ' + ((m % 60) < 10 ? '0' : '') + (m % 60) + 'm';
+  }
+
+  function wordCount(text) {
+    var t = text.trim();
+    if (!t) return 0;
+    return t.split(/\s+/).length;
+  }
+
+  function showSummary() {
+    setState(STATE.SUMMARY);
+    var text = el.input.value;
+    var durationMs = (session.endedAt || Date.now()) - session.startedAt;
+    var words = wordCount(text);
+    var minutes = durationMs / 60000;
+    var wpm = minutes > 0.0001 ? words / minutes : 0;
+
+    document.getElementById('sumPhrase').textContent = depthPhrase(session.highWater);
+
+    var stats = [
+      ['duration', formatDuration(durationMs), ''],
+      ['words', String(words), ''],
+      ['avg wpm', String(Math.round(wpm)), ''],
+      ['longest run', formatDuration(session.longestRunMs), 'unbroken'],
+      ['regularity', String(rhythm.regularityScore()), '/ 100'],
+      ['deepest', depthPhrase(session.highWater), Math.round(session.highWater * 100) + '% depth']
+    ];
+    var html = '';
+    for (var i = 0; i < stats.length; i++) {
+      html += '<div class="stat"><div class="k">' + stats[i][0] + '</div><div class="v">' + stats[i][1] +
+              (stats[i][2] ? ' <small>' + stats[i][2] + '</small>' : '') + '</div></div>';
+    }
+    document.getElementById('sumStats').innerHTML = html;
+    document.getElementById('sumText').textContent = text;
+
+    document.documentElement.style.setProperty('--bg', CONFIG.bgSurface);
+    document.documentElement.style.setProperty('--ink', CONFIG.inkSurface);
+    document.documentElement.style.setProperty('--bloom', '0 0 0 rgba(0,0,0,0)');
+    document.body.style.background = CONFIG.bgSurface;
+    document.body.classList.remove('deep');
+    el.viewport.style.display = 'none';
+    el.chrome.style.display = 'none';
+    el.summary.hidden = false;
+    el.input.blur();
+  }
+
+  document.getElementById('copyBtn').addEventListener('click', function () {
+    var btn = this;
+    var text = document.getElementById('sumText').textContent;
+    function done(ok) {
+      btn.textContent = ok ? 'copied' : 'select & copy';
+      setTimeout(function () { btn.textContent = 'copy'; }, 1800);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(legacyCopy(text)); });
+    } else {
+      done(legacyCopy(text));
+    }
+  });
+
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  /* =====================================================================
+     T1 — the single rAF clock; everything is driven from here
+     ===================================================================== */
+  var lastFrame = performance.now();
+
+  function frame(now) {
+    var dt = now - lastFrame;
+    lastFrame = now;
+    if (dt < 0) dt = 0;
+    if (dt > CONFIG.maxFrameMs) dt = CONFIG.maxFrameMs;   // cap catch-up after a sleeping tab
+
+    updateDepth(dt);
+    rhythm.update(now, dt);
+
+    var d = renderDepth();
+    if (session.state !== STATE.SUMMARY) {
+      renderText(false);
+      applyVisuals(d, dt, now);
+      audio.update(d, dt);
+      audio.schedulePulses(d);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  measureFont();
+  renderText(true);
+  applyVisuals(0, 0, lastFrame);
+  focusInput();
+  requestAnimationFrame(frame);
+
+  /* =====================================================================
+     debug / test handle (T3, T5, T9 acceptance scripts)
+     ===================================================================== */
+  window.channel = {
+    CONFIG: CONFIG,
+    STATE: STATE,
+    session: session,
+    rhythm: rhythm,
+    audio: audio,
+    get depth() { return session.depth; },
+    get state() { return session.state; },
+    begin: beginSession,
+    surface: surface,
+    key: function (ch) {                   // simulate a keystroke, honouring real time
+      if (session.state === STATE.IDLE) beginSession();
+      if (ch === '\b') {
+        el.input.value = el.input.value.slice(0, -1);
+      } else if (typeof ch === 'string') {
+        el.input.value += ch;
+      }
+      el.input.selectionStart = el.input.selectionEnd = el.input.value.length;
+      noteKeystroke(performance.now());
+    },
+    metrics: function () {
+      return {
+        state: session.state,
+        depth: +session.depth.toFixed(4),
+        highWater: +session.highWater.toFixed(4),
+        cv: +rhythm.cv.toFixed(4),
+        gain: +rhythm.gain.toFixed(4),
+        bpm: +rhythm.bpm.toFixed(2),
+        bpmTarget: rhythm.bpmTarget,
+        regularity: rhythm.regularityScore(),
+        writingMs: Math.round(session.writingMs),
+        ikis: rhythm.buffer.length
+      };
+    }
+  };
+})();
+</script>
+</body>
+</html>
