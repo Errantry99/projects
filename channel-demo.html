@@ -1,0 +1,1008 @@
+<title>Channel Descent</title>
+<style>
+  /* ------------------------------------------------------------------
+     A single visual world: the descent itself. The palette is not a
+     theme — it is the state of the animation, driven from JS every
+     frame through --bg / --ink / --bloom, so the instrument panel
+     descends into the dark alongside the prose.
+     ------------------------------------------------------------------ */
+  :root {
+    --bg: #F2E8DB;          /* paper at the surface */
+    --ink: #1A1714;         /* ink at the surface  */
+    --ember: #8C7F6B;       /* ink in the dark     */
+    --signal: #C0843F;      /* the one accent: instrumentation only */
+    --bloom: 0 0 0 rgba(0,0,0,0);
+    --prose: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", Times, serif;
+    --instrument: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--prose);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #stage {
+    position: fixed;
+    inset: 0;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ---------- the writing surface ---------- */
+  #viewport {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 132px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 16%, rgba(0,0,0,1) 84%, rgba(0,0,0,0) 100%);
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 16%, rgba(0,0,0,1) 84%, rgba(0,0,0,0) 100%);
+  }
+  #hwrap {
+    position: absolute;
+    inset: 0;
+    -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 4.5%, rgba(0,0,0,1) 95.5%, rgba(0,0,0,0) 100%);
+            mask-image: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,1) 4.5%, rgba(0,0,0,1) 95.5%, rgba(0,0,0,0) 100%);
+  }
+  #mirror {
+    position: absolute;
+    top: 0;
+    left: 0;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    line-height: 1.58;
+    text-shadow: var(--bloom);
+    color: var(--ink);
+  }
+  #caret {
+    display: inline-block;
+    width: 0.13em;
+    height: 0.86em;
+    vertical-align: -0.1em;
+    background: var(--ink);
+    border-radius: 0.04em;
+    opacity: 0.9;
+  }
+  #caret.rest { opacity: 0.35; }
+
+  /* ---------- instrument panel ---------- */
+  #hud {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0 20px max(20px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    color: var(--ink);
+  }
+  #caption {
+    font-family: var(--prose);
+    font-size: 15px;
+    line-height: 1.45;
+    letter-spacing: 0.005em;
+    opacity: 0.62;
+    min-height: 2.9em;
+    text-wrap: balance;
+    transition: opacity 420ms ease;
+  }
+  #caption.turning { opacity: 0; }
+
+  #readout {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--instrument);
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    opacity: 0.75;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+  }
+  .dot.hold { opacity: 0.4; }
+  .dot.falling { background: var(--signal); opacity: 0.9; }
+
+  #meterwrap { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0; }
+  #meter {
+    position: relative;
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.9;
+    min-width: 40px;
+  }
+  #meter::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0.16;
+    border-radius: 2px;
+  }
+  #fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: var(--signal);
+    border-radius: 2px;
+  }
+  #highwater {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 1px;
+    left: 0;
+    background: var(--signal);
+    opacity: 0;
+  }
+  #depthnum {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.06em;
+    opacity: 0.75;
+    flex: none;
+  }
+  #rate {
+    flex: none;
+    opacity: 0.75;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.4em;
+    text-align: right;
+  }
+
+  /* ---------- controls ---------- */
+  .ghost {
+    position: absolute;
+    top: max(14px, env(safe-area-inset-top));
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--instrument);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    opacity: 0.5;
+    cursor: pointer;
+  }
+  #sound { right: max(10px, env(safe-area-inset-right)); z-index: 30; }
+  .ghost:focus-visible { outline: 1px solid currentColor; outline-offset: -6px; border-radius: 6px; }
+
+  #paused {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    text-align: center;
+    font-family: var(--instrument);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0;
+    transition: opacity 260ms ease;
+    pointer-events: none;
+  }
+  #paused.on { opacity: 0.55; }
+
+  /* ---------- overlays ---------- */
+  .sheet {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 26px max(26px, env(safe-area-inset-bottom));
+    z-index: 20;
+  }
+  .sheet[hidden] { display: none; }
+
+  #intro { align-items: center; text-align: center; gap: 0; }
+  #intro h1 {
+    margin: 0 0 26px;
+    font-weight: 400;
+    font-size: clamp(30px, 11vw, 44px);
+    letter-spacing: 0.32em;
+    text-indent: 0.32em;
+  }
+  #intro p {
+    margin: 0 0 10px;
+    max-width: 30ch;
+    font-size: 16.5px;
+    line-height: 1.5;
+    opacity: 0.72;
+  }
+  #begin {
+    margin-top: 32px;
+    padding: 14px 30px;
+    min-height: 48px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    background: transparent;
+    color: inherit;
+    font-family: var(--instrument);
+    font-size: 11.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  #intro .fine {
+    margin-top: 22px;
+    font-family: var(--instrument);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.38;
+  }
+
+  /* ---------- the summary ---------- */
+  #end { justify-content: flex-start; padding-top: max(46px, env(safe-area-inset-top)); overflow-y: auto; }
+  #end .eyebrow {
+    font-family: var(--instrument);
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    opacity: 0.42;
+  }
+  #end .phrase {
+    margin: 14px 0 30px;
+    font-size: clamp(30px, 9vw, 40px);
+    letter-spacing: 0.02em;
+  }
+  #end dl {
+    margin: 0 0 30px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(26,23,20,0.16);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 18px;
+  }
+  #end dt {
+    font-family: var(--instrument);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.42;
+  }
+  #end dd {
+    margin: 5px 0 0;
+    font-size: 23px;
+    font-variant-numeric: tabular-nums;
+  }
+  #end dd small { font-size: 12px; opacity: 0.5; letter-spacing: 0.05em; }
+  #end .said {
+    border-top: 1px solid rgba(26,23,20,0.16);
+    padding-top: 20px;
+    font-size: 15.5px;
+    line-height: 1.62;
+    opacity: 0.8;
+  }
+  #end .said b {
+    display: block;
+    margin-bottom: 12px;
+    font-family: var(--instrument);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.42;
+  }
+  #replay {
+    margin: 0 0 30px;
+    align-self: flex-start;
+    padding: 13px 26px;
+    min-height: 46px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    background: transparent;
+    color: inherit;
+    font-family: var(--instrument);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #caption { transition: none; }
+    #paused { transition: none; }
+  }
+  @media (min-width: 720px) {
+    #caption { font-size: 16px; max-width: 62ch; }
+    #hud { padding-left: 34px; padding-right: 34px; }
+    #viewport { bottom: 148px; }
+  }
+</style>
+
+<div id="stage">
+  <div id="viewport"><div id="hwrap"><div id="mirror"><span id="pre"></span><span id="caret"></span></div></div></div>
+
+  <div id="paused">paused</div>
+
+  <div id="hud">
+    <p id="caption"></p>
+    <div id="readout">
+      <span class="pill"><span class="dot" id="statedot"></span><span id="statename">writing</span></span>
+      <span id="meterwrap">
+        <span id="meter"><span id="fill"></span><span id="highwater"></span></span>
+        <span id="depthnum">0.000</span>
+      </span>
+      <span id="rate">1&times;</span>
+    </div>
+  </div>
+
+  <button class="ghost" id="sound" type="button" aria-label="Mute sound">vol</button>
+
+  <div class="sheet" id="intro">
+    <h1>channel</h1>
+    <p>A writing surface that gets deeper the longer you stay in it. The page darkens, the type grows, and a drone comes up under your hands.</p>
+    <p>This is seventy seconds of it, playing itself.</p>
+    <button id="begin" type="button">begin</button>
+    <p class="fine">sound on &middot; tap to pause</p>
+  </div>
+
+  <div class="sheet" id="end" hidden>
+    <span class="eyebrow">surfaced</span>
+    <div class="phrase" id="endphrase">channel</div>
+    <dl id="endstats"></dl>
+    <button id="replay" type="button">watch again</button>
+    <div class="said"><b>what got written</b><span id="endtext"></span></div>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  /* ==================================================================
+     The passage the demo writes. Pauses are scripted between segments,
+     in real milliseconds — the depth model turns them into THINKING
+     and STOPPED on its own, exactly as a person's pauses would.
+     ================================================================== */
+  var SCRIPT = [
+    { text: 'There is a point, maybe twenty minutes in, where the room stops asking you for anything.', pause: 900 },
+    { text: ' The sentences start arriving a little ahead of the thinking. You are not choosing the words so much as catching them, and the page has gone quiet and dark around the one line you are actually writing.', pause: 700 },
+    { text: ' Nobody teaches you how to get here. You cannot force it and you cannot fake it; you can only keep your hands moving and stay out of your own way long enough for the thing to take over.', pause: 9000 },
+    { text: ' Stop for a moment and it waits for you. Stop for longer and it begins handing the depth back, a third as fast as you earned it, which is the kindest arithmetic anyone has offered you all week.', pause: 600 },
+    { text: ' Come back and it meets you halfway, twice as quick, until you are standing where you stood before. Then the ordinary rate resumes and there is nothing left to do but keep going, one word and then the next one, down.', pause: 0 }
+  ];
+
+  var CONFIG = {
+    buildMs: 20 * 60 * 1000,       // 20 minutes of writing = depth 1
+    thinkingMs: 2000,              // silence that holds the depth
+    stoppedMs: 30000,              // silence that starts giving it back
+    decayRate: 1 / 3,
+    recoveryRate: 2,
+    charMs: 64,                    // base keystroke interval
+    charJitter: 26,                // humanising jitter, seeded
+    punctuationMs: 210,            // extra beat after . , ; : (capped by the calibration)
+    surfacingMs: 4000,
+    charsPerWord: 6.6,
+    wordsAcrossDeep: 1.5,
+    baseFontPx: 18,                // type size at the surface
+    minAcross: 30,
+    maxAcross: 60,
+    lineHeight: 1.58,
+    bgSurface: '#F2E8DB',
+    bgDeep: '#000000',
+    inkSurface: '#1A1714',
+    inkEmber: '#8C7F6B',
+    emberTriggerLightness: 0.40,
+    emberCrossfadeDepth: 0.15,
+    bloomRadiusEm: 0.4,
+    bloomAlpha: 0.5,
+    volume: 0.7
+  };
+
+  var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- maths ---------- */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function clamp01(v) { return clamp(v, 0, 1); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function easeInOutSine(t) { return -(Math.cos(Math.PI * clamp01(t)) - 1) / 2; }
+  function smoothstep(a, b, x) { var t = clamp01((x - a) / (b - a || 1)); return t * t * (3 - 2 * t); }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ---------- perceptually even colour (Oklab) ---------- */
+  function hexToRgb(h) {
+    h = h.replace('#', '');
+    return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+  }
+  function toLinear(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  function toSrgb(c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; }
+  function rgbToLab(rgb) {
+    var r = toLinear(rgb[0]), g = toLinear(rgb[1]), b = toLinear(rgb[2]);
+    var l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    var m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    var s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+  }
+  function labToRgb(lab) {
+    var l_ = lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2];
+    var m_ = lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2];
+    var s_ = lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2];
+    var l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+    return [clamp01(toSrgb(+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)),
+            clamp01(toSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)),
+            clamp01(toSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))];
+  }
+  function mix(hexA, hexB, t) {
+    var a = rgbToLab(hexToRgb(hexA)), b = rgbToLab(hexToRgb(hexB));
+    return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+  }
+  function css(lab, alpha) {
+    var c = labToRgb(lab);
+    var r = Math.round(c[0] * 255), g = Math.round(c[1] * 255), b = Math.round(c[2] * 255);
+    return alpha === undefined ? 'rgb(' + r + ',' + g + ',' + b + ')'
+                               : 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(3) + ')';
+  }
+  var emberStart = (function () {
+    var lo = 0, hi = 1;
+    for (var i = 0; i < 40; i++) {
+      var mid = (lo + hi) / 2;
+      if (mix(CONFIG.bgSurface, CONFIG.bgDeep, mid)[0] < CONFIG.emberTriggerLightness) hi = mid; else lo = mid;
+    }
+    return hi;
+  })();
+
+  /* ==================================================================
+     Build the keystroke track: every character with its own delay, so
+     the total typing time is known before a frame is drawn. timeScale
+     is then solved from it — the last word lands exactly on depth 1.
+     ================================================================== */
+  var buildPerMs = 1 / CONFIG.buildMs;
+  var S = { WRITING: 'writing', THINKING: 'thinking', STOPPED: 'stopped', SURFACING: 'surfacing', DONE: 'done' };
+  var run = null;
+
+  var FULL = SCRIPT.map(function (s) { return s.text; }).join('');
+  var rand = mulberry32(20240829);
+  var track = [];
+  (function buildTrack() {
+    for (var s = 0; s < SCRIPT.length; s++) {
+      var seg = SCRIPT[s].text;
+      for (var i = 0; i < seg.length; i++) {
+        var ch = seg.charAt(i);
+        var d = CONFIG.charMs + (rand() - 0.5) * 2 * CONFIG.charJitter;
+        if ('.,;:'.indexOf(ch) >= 0) d += CONFIG.punctuationMs;
+        track.push({ ch: ch, raw: Math.max(18, d), delay: 0, pauseAfter: 0 });
+      }
+      track[track.length - 1].pauseAfter = SCRIPT[s].pause;
+    }
+  })();
+
+  // Walk the whole timeline at a candidate scale and report where depth lands.
+  function simulate(scale) {
+    var depth = 0, high = 0, sinceKey = 0, state = S.WRITING;
+    function span(realMs) {
+      var remaining = realMs * scale, guard = 0;
+      while (remaining > 0 && guard++ < 8) {
+        var step = remaining;
+        if (state === S.WRITING) {
+          step = Math.min(step, Math.max(0, CONFIG.thinkingMs - sinceKey));
+          if (step <= 0) { state = S.THINKING; continue; }
+        } else if (state === S.THINKING) {
+          step = Math.min(step, Math.max(0, CONFIG.stoppedMs - sinceKey));
+          if (step <= 0) { state = S.STOPPED; continue; }
+        }
+        if (state === S.WRITING) {
+          depth = clamp01(depth + buildPerMs * (depth < high ? CONFIG.recoveryRate : 1) * step);
+          if (depth > high) high = depth;
+        } else if (state === S.STOPPED) {
+          depth = clamp01(depth - buildPerMs * CONFIG.decayRate * step);
+        }
+        sinceKey += step;
+        remaining -= step;
+      }
+    }
+    for (var i = 0; i < track.length; i++) {
+      state = S.WRITING;
+      sinceKey = 0;
+      span(track[i].delay);
+      if (track[i].pauseAfter) span(track[i].pauseAfter);
+    }
+    return depth;
+  }
+
+  // Solve for the time scale: cap each interval below the THINKING threshold so
+  // only the scripted pauses change state, then correct for the time the
+  // scripted pauses spend holding and giving depth back.
+  var timeScale = 20;
+  (function calibrate() {
+    for (var pass = 0; pass < 24; pass++) {
+      var cap = 0.8 * CONFIG.thinkingMs / timeScale;
+      var typingMs = 0, i;
+      for (i = 0; i < track.length; i++) {
+        track[i].delay = Math.min(track[i].raw, cap);
+        typingMs += track[i].delay;
+      }
+      var landed = simulate(timeScale);
+      if (landed > 0.999 && landed <= 1) break;
+      timeScale = timeScale * (landed > 0.02 ? clamp(1 / landed, 0.5, 2) : 2);
+      void typingMs;
+    }
+  })();
+
+  function newRun() {
+    return {
+      state: S.WRITING,
+      depth: 0,
+      highWater: 0,
+      sinceKeyMs: 0,
+      typed: 0,
+      nextCharAt: 0,
+      surfacing: 0,
+      startedAt: 0,
+      recovering: false,
+      caughtUp: false,
+      lastDelays: [],
+      rhythmGain: 0
+    };
+  }
+
+  // Once the page is this deep, the closing line holds — no more rule captions.
+  function atDepth() { return run.depth > 0.88; }
+
+  function advance(dt) {
+    var remaining = dt * timeScale;
+    var guard = 0;
+    while (remaining > 0 && guard++ < 8) {
+      var step = remaining;
+      if (run.state === S.WRITING) {
+        step = Math.min(step, Math.max(0, CONFIG.thinkingMs - run.sinceKeyMs));
+        if (step <= 0) { run.state = S.THINKING; if (!atDepth()) caption(CAPTIONS.thinking); continue; }
+      } else if (run.state === S.THINKING) {
+        step = Math.min(step, Math.max(0, CONFIG.stoppedMs - run.sinceKeyMs));
+        if (step <= 0) { run.state = S.STOPPED; if (!atDepth()) caption(CAPTIONS.stopped); continue; }
+      }
+      if (run.state === S.WRITING) {
+        var below = run.depth < run.highWater;
+        run.depth = clamp01(run.depth + buildPerMs * (below ? CONFIG.recoveryRate : 1) * step);
+        if (run.depth > run.highWater) run.highWater = run.depth;
+        if (run.recovering && !below) { run.recovering = false; caption(CAPTIONS.caught); }
+      } else if (run.state === S.STOPPED) {
+        run.depth = clamp01(run.depth - buildPerMs * CONFIG.decayRate * step);
+      }
+      run.sinceKeyMs += step;
+      remaining -= step;
+    }
+  }
+
+  /* ==================================================================
+     What the reader is told, and when. Every line describes a rule the
+     model is actually applying at that moment.
+     ================================================================== */
+  var CAPTIONS = {
+    opening: 'Twenty minutes of unbroken writing carries the page from paper to black. This is that, at about twenty times speed.',
+    thinking: 'Two seconds without a keystroke and it stops building — but it holds everything you have. Thinking is not losing your place.',
+    stopped: 'Thirty seconds of silence and it starts handing the depth back, a third as fast as you earned it.',
+    resume: 'Back at the ordinary rate. Nothing was lost.',
+    recover: 'Type again and it climbs at double speed, up to the deepest point you had reached.',
+    caught: 'High-water mark caught. The ordinary rate resumes.',
+    ember: 'The page is dark enough now that black ink would vanish, so the ink crosses over to ember and starts to glow.',
+    deep: 'A word and a half on the screen, a drone under your hands, and no way to see what you wrote four minutes ago.',
+    surfacing: 'Escape twice. Four seconds of cooling, and it lets you go.'
+  };
+
+  var el = {};
+  ['stage','viewport','mirror','pre','caret','caption','statedot','statename','fill','highwater','depthnum','rate',
+   'sound','paused','intro','end','endphrase','endstats','endtext','begin','replay'].forEach(function (id) {
+    el[id] = document.getElementById(id);
+  });
+
+  var captionText = '';
+  var captionTimer = 0;
+  function caption(text) {
+    if (text === captionText) return;
+    captionText = text;
+    if (reduced) { el.caption.textContent = text; return; }
+    el.caption.classList.add('turning');
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(function () {
+      el.caption.textContent = text;
+      el.caption.classList.remove('turning');
+    }, 420);
+  }
+
+  /* ---------- type metrics ---------- */
+  var charRatio = 0.5;
+  function measure() {
+    var probe = document.createElement('span');
+    var sample = 'the quick brown fox jumps over the lazy dog and writes on ';
+    probe.textContent = sample;
+    probe.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre;font-size:200px;line-height:1';
+    probe.style.fontFamily = getComputedStyle(el.mirror).fontFamily;
+    document.body.appendChild(probe);
+    charRatio = probe.getBoundingClientRect().width / (200 * sample.length) || 0.5;
+    document.body.removeChild(probe);
+  }
+
+  function acrossAtSurface() {
+    var w = el.viewport.clientWidth * 0.9;
+    return clamp(w / (CONFIG.baseFontPx * charRatio), CONFIG.minAcross, CONFIG.maxAcross);
+  }
+
+  var lastFont = 0, lastW = 0;
+
+  function draw(depth) {
+    var vw = el.viewport.clientWidth, vh = el.viewport.clientHeight;
+    var surface = acrossAtSurface();
+    var across = lerp(surface, CONFIG.wordsAcrossDeep * CONFIG.charsPerWord, easeInOutSine(depth));
+    var font = (vw * 0.9) / (across * charRatio);
+    var colWidth = surface * charRatio * font;
+
+    if (Math.abs(font - lastFont) > 0.01 || colWidth !== lastW) {
+      lastFont = font; lastW = colWidth;
+      el.mirror.style.fontSize = font.toFixed(3) + 'px';
+      el.mirror.style.width = colWidth.toFixed(2) + 'px';
+    }
+
+    // typewriter scroll: the caret is the fixed point of the whole page
+    var cx = el.caret.offsetLeft, cy = el.caret.offsetTop;
+    var cw = el.caret.offsetWidth, chh = el.caret.offsetHeight || font;
+    var ty = vh / 2 - (cy + chh / 2);
+    var tx = colWidth <= vw ? (vw - colWidth) / 2 : clamp(vw / 2 - (cx + cw / 2), vw - colWidth, 0);
+    el.mirror.style.transform = 'translate3d(' + tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
+
+    // colour: pastel to black on an even perceptual path, ink to ember once dark
+    var bg = mix(CONFIG.bgSurface, CONFIG.bgDeep, depth);
+    var emberT = bg[0] < CONFIG.emberTriggerLightness
+      ? clamp01((depth - emberStart) / CONFIG.emberCrossfadeDepth) : 0;
+    var ink = mix(CONFIG.inkSurface, CONFIG.inkEmber, emberT);
+    var root = document.documentElement.style;
+    root.setProperty('--bg', css(bg));
+    root.setProperty('--ink', css(ink));
+    root.setProperty('--bloom', emberT > 0
+      ? '0 0 ' + (CONFIG.bloomRadiusEm * emberT).toFixed(3) + 'em ' + css(ink, CONFIG.bloomAlpha * emberT)
+      : '0 0 0 rgba(0,0,0,0)');
+  }
+
+  function drawHud(depth) {
+    el.fill.style.width = (depth * 100).toFixed(2) + '%';
+    el.depthnum.textContent = depth.toFixed(3);
+    var hw = run.highWater;
+    el.highwater.style.left = (hw * 100).toFixed(2) + '%';
+    el.highwater.style.opacity = (hw - depth > 0.004) ? '0.85' : '0';
+
+    var name = run.state, rate = '1×', dot = 'dot';
+    if (run.state === S.WRITING) {
+      if (depth < hw - 0.0005) { rate = '2×'; }
+    } else if (run.state === S.THINKING) { rate = 'hold'; dot = 'dot hold'; }
+    else if (run.state === S.STOPPED) { rate = '⅓×'; dot = 'dot falling'; }
+    else if (run.state === S.SURFACING) { rate = '—'; dot = 'dot hold'; }
+    el.statename.textContent = name;
+    el.rate.textContent = rate;
+    el.statedot.className = dot;
+    el.caret.className = run.state === S.WRITING ? '' : 'rest';
+  }
+
+  /* ==================================================================
+     Audio — the same graph the real thing runs: a 55 Hz drone that
+     comes up with depth, and an eighth-note pulse that only appears
+     when the typing itself is even.
+     ================================================================== */
+  var audio = {
+    ctx: null, ready: false, muted: false,
+    master: null, session: null, filter: null, drone: null, octave: null, lfoGain: null, bus: null,
+    nextNote: 0, note: 0,
+
+    start: function () {
+      if (this.ready) return;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = this.ctx = new AC(), t = ctx.currentTime;
+
+      this.master = ctx.createGain();
+      this.master.gain.setValueAtTime(this.muted ? 0 : CONFIG.volume, t);
+      this.master.connect(ctx.destination);
+
+      this.session = ctx.createGain();
+      this.session.gain.setValueAtTime(1, t);
+      this.session.connect(this.master);
+
+      this.filter = ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.frequency.setValueAtTime(180, t);
+      this.filter.Q.setValueAtTime(0.7, t);
+      this.filter.connect(this.session);
+
+      this.drone = ctx.createGain();
+      this.drone.gain.setValueAtTime(0.0001, t);
+      this.drone.connect(this.filter);
+
+      var root = ctx.createOscillator();
+      root.type = 'sine'; root.frequency.setValueAtTime(55, t);
+      root.connect(this.drone); root.start(t);
+
+      var partner = ctx.createOscillator();
+      partner.type = 'triangle'; partner.frequency.setValueAtTime(55.4, t);
+      var pg = ctx.createGain(); pg.gain.setValueAtTime(0.55, t);
+      partner.connect(pg).connect(this.drone); partner.start(t);
+
+      this.octave = ctx.createGain();
+      this.octave.gain.setValueAtTime(0.0001, t);
+      this.octave.connect(this.drone);
+      var oct = ctx.createOscillator();
+      oct.type = 'sine'; oct.frequency.setValueAtTime(110, t);
+      oct.connect(this.octave); oct.start(t);
+
+      var lfo = ctx.createOscillator();
+      lfo.type = 'sine'; lfo.frequency.setValueAtTime(0.05, t);
+      this.lfoGain = ctx.createGain();
+      this.lfoGain.gain.setValueAtTime(0, t);
+      lfo.connect(this.lfoGain).connect(this.filter.frequency); lfo.start(t);
+
+      this.bus = ctx.createGain();
+      this.bus.gain.setValueAtTime(1, t);
+      this.bus.connect(this.session);
+
+      this.nextNote = ctx.currentTime + 0.1;
+      this.ready = true;
+      if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+    },
+
+    update: function (depth, surfacing) {
+      if (!this.ready) return;
+      var t = this.ctx.currentTime;
+      this.drone.gain.setTargetAtTime(Math.max(0.0001, lerp(0.1, 0.5, easeInOutSine(depth)) * depth), t, 0.08);
+      this.octave.gain.setTargetAtTime(Math.max(0.0001, smoothstep(0.7, 1, depth) * 0.5), t, 0.08);
+      var cutoff = lerp(180, 780, easeInOutSine(depth));
+      if (surfacing > 0) cutoff = lerp(cutoff, 90, easeInOutSine(surfacing));
+      this.filter.frequency.setTargetAtTime(cutoff, t, 0.08);
+      this.lfoGain.gain.setTargetAtTime(140 * depth, t, 0.08);
+    },
+
+    pulses: function (depth, gain) {
+      if (!this.ready || run.state === S.SURFACING) return;
+      var level = gain * depth * 0.22;
+      var eighth = (60 / 90) / 2;
+      var horizon = this.ctx.currentTime + 0.22;
+      if (this.nextNote < this.ctx.currentTime) this.nextNote = this.ctx.currentTime + 0.02;
+      while (this.nextNote < horizon) {
+        if (level > 0.0008) this.blip(this.nextNote, level, depth);
+        this.nextNote += eighth;
+        this.note++;
+      }
+    },
+
+    blip: function (when, level, depth) {
+      var ctx = this.ctx;
+      var fifth = depth > 0.8 && (this.note % 2 === 1);
+      var osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220 * (fifth ? 1.5 : 1), when);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.linearRampToValueAtTime(level, when + 0.018);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + 0.28);
+      osc.connect(g).connect(this.bus);
+      osc.start(when); osc.stop(when + 0.34);
+      osc.onended = function () { try { osc.disconnect(); g.disconnect(); } catch (e) {} };
+    },
+
+    surface: function () {
+      if (!this.ready) return;
+      var t = this.ctx.currentTime, g = this.session.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(0.0001, t + CONFIG.surfacingMs / 1000);
+    },
+
+    stop: function () {
+      if (!this.ready) return;
+      try { this.ctx.close(); } catch (e) {}
+      this.ready = false; this.ctx = null;
+    },
+
+    setMuted: function (m) {
+      this.muted = m;
+      if (this.ready) this.master.gain.setTargetAtTime(m ? 0 : CONFIG.volume, this.ctx.currentTime, 0.05);
+    }
+  };
+
+  /* ==================================================================
+     Playback
+     ================================================================== */
+  var playing = false, paused = false, lastFrame = 0, clock = 0, watchedMs = 0;
+  var said = { ember: false, deep: false };
+
+  function rhythmGain() {
+    var d = run.lastDelays, n = d.length;
+    if (n < 4) return 0;
+    var sum = 0, i;
+    for (i = 0; i < n; i++) sum += d[i];
+    var mean = sum / n, acc = 0;
+    for (i = 0; i < n; i++) acc += (d[i] - mean) * (d[i] - mean);
+    var cv = Math.sqrt(acc / n) / mean;
+    return clamp01(1 - smoothstep(0.35, 0.6, cv));
+  }
+
+  function emitOne() {
+    var item = track[run.typed];
+    if (run.state === S.STOPPED) { run.recovering = true; caption(CAPTIONS.recover); }
+    else if (run.state === S.THINKING && !atDepth()) { caption(CAPTIONS.resume); }
+    run.state = S.WRITING;
+    run.sinceKeyMs = 0;
+    el.pre.textContent += item.ch;
+    run.lastDelays.push(item.delay);
+    if (run.lastDelays.length > 24) run.lastDelays.shift();
+    run.rhythmGain = rhythmGain();
+    run.nextCharAt += item.delay + item.pauseAfter;
+    run.typed++;
+  }
+
+  // One ordered clock: depth is advanced up to each keystroke, then the
+  // keystroke lands, then the remainder of the frame plays out.
+  function step(dt) {
+    var end = clock + dt;
+    while (run.typed < track.length && run.nextCharAt <= end) {
+      advance(Math.max(0, run.nextCharAt - clock));
+      clock = run.nextCharAt;
+      emitOne();
+    }
+    if (end > clock) { advance(end - clock); }
+    clock = end;
+    if (run.typed >= track.length && run.state !== S.SURFACING && clock >= run.nextCharAt + 500) beginSurface();
+  }
+
+  function beginSurface() {
+    run.state = S.SURFACING;
+    run.surfacing = 0;
+    caption(CAPTIONS.surfacing);
+    audio.surface();
+  }
+
+  function shownDepth() {
+    if (run.state === S.SURFACING) return run.depth * (1 - easeInOutSine(clamp01(run.surfacing / CONFIG.surfacingMs)));
+    return run.depth;
+  }
+
+  function frame(now) {
+    var dt = now - lastFrame;
+    lastFrame = now;
+    if (!(dt > 0)) dt = 0;
+    if (dt > 250) dt = 250;
+
+    if (playing && !paused) {
+      watchedMs += dt;
+      if (run.state === S.SURFACING) {
+        run.surfacing += dt;
+        if (run.surfacing >= CONFIG.surfacingMs) finish();
+      } else {
+        step(dt);
+      }
+    }
+
+    var depth = shownDepth();
+    if (!said.ember && depth > emberStart + 0.01) { said.ember = true; caption(CAPTIONS.ember); }
+    if (!said.deep && depth > 0.9) { said.deep = true; caption(CAPTIONS.deep); }
+
+    draw(depth);
+    drawHud(depth);
+    audio.update(depth, run.state === S.SURFACING ? clamp01(run.surfacing / CONFIG.surfacingMs) : 0);
+    audio.pulses(depth, run.rhythmGain);
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- summary ---------- */
+  function finish() {
+    playing = false;
+    run.state = S.DONE;
+    run.depth = 0;                       // the sheet paints in the live tokens: back to paper
+    audio.stop();
+    var words = FULL.trim().split(/\s+/).length;
+    var secs = Math.round(watchedMs / 1000);
+    var stats = [
+      ['written', words + ' <small>words</small>'],
+      ['session', '20 <small>minutes</small>'],
+      ['you watched', Math.floor(secs / 60) + ':' + (secs % 60 < 10 ? '0' : '') + (secs % 60)],
+      ['deepest', 'channel']
+    ];
+    el.endstats.innerHTML = stats.map(function (s) {
+      return '<div><dt>' + s[0] + '</dt><dd>' + s[1] + '</dd></div>';
+    }).join('');
+    el.endtext.textContent = FULL.trim();
+    el.end.hidden = false;
+  }
+
+  /* ---------- controls ---------- */
+  var SPEAKER_ON = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+  var SPEAKER_OFF = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 10 5 5"/><path d="m21 10-5 5"/></svg>';
+
+  function paintSound() {
+    el.sound.innerHTML = audio.muted ? SPEAKER_OFF : SPEAKER_ON;
+    el.sound.setAttribute('aria-label', audio.muted ? 'Turn sound on' : 'Mute sound');
+  }
+
+  el.sound.addEventListener('click', function (e) {
+    e.stopPropagation();
+    audio.setMuted(!audio.muted);
+    paintSound();
+  });
+
+  el.stage.addEventListener('click', function (e) {
+    if (!playing) return;
+    if (e.target.closest('button')) return;
+    paused = !paused;
+    el.paused.classList.toggle('on', paused);
+  });
+
+  function begin() {
+    run = newRun();
+    said = { ember: false, deep: false };
+    captionText = '';
+    el.pre.textContent = '';
+    el.caption.classList.remove('turning');
+    el.caption.textContent = CAPTIONS.opening;
+    captionText = CAPTIONS.opening;
+    clock = 0;
+    watchedMs = 0;
+    paused = false;
+    el.paused.classList.remove('on');
+    el.intro.hidden = true;
+    el.end.hidden = true;
+    audio.start();
+    paintSound();
+    playing = true;
+  }
+
+  el.begin.addEventListener('click', begin);
+  el.replay.addEventListener('click', begin);
+
+  window.addEventListener('resize', function () { measure(); lastFont = 0; });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && playing) { paused = true; el.paused.classList.add('on'); }
+  });
+
+  /* ---------- boot ---------- */
+  run = newRun();
+  measure();
+  paintSound();
+  el.caption.textContent = CAPTIONS.opening;
+  captionText = CAPTIONS.opening;
+  window.__demo = { timeScale: timeScale, lands: simulate(timeScale), chars: track.length, run: function () { return run; } };
+  lastFrame = performance.now();
+  requestAnimationFrame(frame);
+})();
+</script>
