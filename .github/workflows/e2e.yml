@@ -1,0 +1,36 @@
+name: e2e
+
+# Drives the real pages in Chromium through their debug handles. Slower and
+# heavier than the unit suite, so it is its own workflow.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # channel.qa.mjs resolves playwright locally, then globally, so a
+      # global install is enough — there is no package.json on this branch.
+      - name: Install Playwright
+        run: |
+          npm install -g playwright@1.56.1
+          playwright install --with-deps chromium
+
+      - name: Acceptance checks (T1-T9)
+        run: node channel.qa.mjs
