@@ -45,7 +45,18 @@ section('T1-T3 — scaffold, editor core, depth model & state machine');
   await page.waitForTimeout(400);
   check('loads with no page errors', errs.length===0, errs.join(' | '));
   check('zero network requests', net.length===0, net.join(','));
-  check('idle screen visible', await page.locator('#idle').isVisible());
+  check('the project library is the first screen', await page.locator('#idle').isVisible());
+  check('the library offers a chapter', await page.locator('#addChapter').isVisible());
+
+  // keystrokes on the library are navigation, never the start of a session
+  await page.keyboard.type('zz');
+  await page.waitForTimeout(120);
+  check('keys on the library do not start writing',
+        await page.evaluate(()=>channel.state)==='IDLE' &&
+        await page.evaluate(()=>document.getElementById('input').value)==='');
+
+  await page.click('#addChapter');
+  await page.waitForTimeout(150);
 
   // T7: first keystroke begins and is not swallowed
   await page.keyboard.type('h');
@@ -137,6 +148,8 @@ section('T4 — visual system: zoom, colour, ember, chrome');
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errs = []; page.on('pageerror', e=>errs.push(String(e)));
   await page.goto(FILE);
+  await page.waitForFunction(()=>window.channel && document.getElementById('addChapter'));
+  await page.click('#addChapter');
   await page.keyboard.type('the quick brown fox');
   await page.waitForTimeout(150);
 
@@ -319,11 +332,13 @@ section('T5-T7 — rhythm engine, audio system, begin & surfacing');
   await page.waitForTimeout(4600);
   check('summary appears after the 4s cooling ramp', await page.locator('#summary').isVisible());
   const sum = await page.evaluate(()=>({
-    phrase: document.getElementById('sumPhrase').textContent,
+    phrase: [...document.querySelectorAll('#sumStats .stat')].map(e=>e.querySelector('.v').textContent.trim()).find(v=>/surface|descending|deep|channel/.test(v)) || '',
+    title: document.getElementById('sumTitle').textContent,
     stats: [...document.querySelectorAll('#sumStats .stat')].map(e=>e.querySelector('.k').textContent+': '+e.querySelector('.v').textContent.trim()),
     text: document.getElementById('sumText').textContent.length }));
   console.log('    summary:', JSON.stringify(sum.stats));
-  check('deepest phrase reflects high-water depth', sum.phrase==='channel', sum.phrase+' hw='+mid.d.toFixed(2));
+  check('deepest phrase reflects high-water depth', sum.phrase.startsWith('channel'), sum.phrase+' hw='+mid.d.toFixed(2));
+  check('the chapter is titled from what was written', sum.title.length > 0, JSON.stringify(sum.title));
   check('summary shows all six metrics', sum.stats.length===6);
   check('summary carries the full text', sum.text>0, sum.text+' chars');
   check('audio closed after surfacing', await page.evaluate(()=>channel.audio.ready)===false);
@@ -459,6 +474,102 @@ section('T8 — summary screen metrics & copy');
   check('copy puts the full text on the clipboard', clip === scripted.text, JSON.stringify(clip.slice(0,30)+'…'));
   check('no page errors', errs.length===0, errs.join('|'));
   await b.close();
+}
+
+
+section('Project & chapters — a persistent shelf, one chapter per session');
+{
+  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errs = []; page.on('pageerror', e=>errs.push(String(e)));
+  const net = []; page.on('request', r => { if (!r.url().startsWith('file://')) net.push(r.url()); });
+
+  await page.goto(FILE);
+  await page.waitForFunction(()=>window.channel && document.getElementById('chapterList'));
+  await page.waitForTimeout(400);
+
+  check('storage is available', await page.evaluate(()=>channel.store.available));
+  check('the shelf starts empty', await page.locator('#chapterEmpty').isVisible());
+  check('nothing to export yet', await page.locator('#exportAll').isHidden());
+
+  // name the project
+  await page.click('#projectTitle');
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('The Undercurrent');
+  await page.waitForTimeout(250);
+  check('the project can be named', await page.evaluate(()=>channel.project.title)==='The Undercurrent');
+
+  // chapter one
+  await page.click('#addChapter');
+  await page.waitForTimeout(150);
+  check('add chapter opens a blank surface',
+        await page.locator('#idle').isHidden() &&
+        await page.evaluate(()=>document.getElementById('input').value)==='');
+  await page.keyboard.type('The first winter in the house on the hill.\nNobody warned us about the wind.');
+  await page.evaluate(()=>{ channel.session.depth=0.7; channel.session.highWater=0.7; });
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await page.waitForTimeout(4600);
+  check('the chapter takes its title from the first line',
+        (await page.evaluate(()=>document.getElementById('sumTitle').textContent))
+          === 'The first winter in the house on the hill.');
+
+  // retitle, then back to the shelf
+  await page.click('#sumTitle');
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Wind on the Hill');
+  await page.waitForTimeout(250);
+  await page.click('#backToProject');
+  await page.waitForTimeout(350);
+  check('back to project returns to the shelf', await page.locator('#idle').isVisible());
+  check('the chapter is listed', (await page.locator('#chapterList li').count())===1);
+  check('the retitle stuck', (await page.locator('.ch-title').first().textContent())==='Wind on the Hill');
+
+  // chapter two starts clean
+  await page.click('#addChapter');
+  await page.waitForTimeout(150);
+  check('a new chapter starts from nothing',
+        (await page.evaluate(()=>document.getElementById('input').value))==='' &&
+        (await page.evaluate(()=>channel.depth)) < 0.01);
+  await page.keyboard.type('A second piece, written later.');
+  await page.evaluate(()=>{ channel.session.depth=0.3; channel.session.highWater=0.3; });
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await page.waitForTimeout(4600);
+  await page.click('#backToProject');
+  await page.waitForTimeout(350);
+  check('both chapters are on the shelf', (await page.locator('#chapterList li').count())===2);
+
+  // the point of the whole thing: it survives a refresh
+  await page.reload();
+  await page.waitForFunction(()=>window.channel && document.getElementById('chapterList'));
+  await page.waitForTimeout(600);
+  check('the project title survives a refresh',
+        (await page.evaluate(()=>channel.project.title))==='The Undercurrent');
+  check('the chapters survive a refresh', (await page.locator('#chapterList li').count())===2);
+  check('a chapter keeps its title across a refresh',
+        (await page.locator('.ch-title').first().textContent())==='Wind on the Hill');
+
+  // reading one back
+  await page.locator('#chapterList li').first().click();
+  await page.waitForTimeout(250);
+  check('a chapter opens for reading', await page.locator('#reader').isVisible());
+  check('the reader shows what was written',
+        (await page.locator('#readerText').textContent()).includes('Nobody warned us'));
+  await page.click('#readerBack');
+  await page.waitForTimeout(200);
+  check('the reader closes back to the shelf', await page.locator('#idle').isVisible());
+
+  // markdown out
+  const md = await page.evaluate(()=>channel.projectMarkdown());
+  check('the export leads with the project', md.startsWith('# The Undercurrent'));
+  check('each chapter carries frontmatter',
+        md.includes('title: "Wind on the Hill"') && md.includes('deepest: deep'));
+  check('the export carries every chapter',
+        md.includes('Nobody warned us') && md.includes('A second piece'));
+
+  check('still no network requests', net.length===0, net.join(','));
+  check('no page errors', errs.length===0, errs.join('|'));
+  await browser.close();
 }
 
 
