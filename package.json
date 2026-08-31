@@ -1,0 +1,26 @@
+{
+  "name": "channel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A writing surface that gets deeper the longer you stay in it",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:single": "vite build --mode single",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node channel.qa.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check src test",
+    "check:fix": "biome check --write src test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.11"
+  }
+}
