@@ -203,6 +203,37 @@ section('T4 — visual system: zoom, colour, ember, chrome');
   check('no zoom snapping (max step < 6%)', maxStep < 1.06, 'max step '+((maxStep-1)*100).toFixed(2)+'%');
   check('all font sizes readable (>= 13px)', Math.min(...sweep) >= 13, 'min '+Math.min(...sweep).toFixed(1));
 
+  // ---- the frame does not invalidate what it did not change ----
+  const churn = await page.evaluate(async () => {
+    const ta = document.getElementById('input');
+    ta.value = 'the river runs under the floor of the house and no one hears it but you '.repeat(60);
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    channel.CONFIG.timeScale = 20;
+    const before = channel.counters();
+    let frames = 0;
+    const t0 = performance.now();
+    channel.begin();
+    await new Promise(r => (function f(){
+      channel.key('x'); frames++;
+      performance.now() - t0 > 4000 ? r() : requestAnimationFrame(f);
+    })());
+    const after = channel.counters();
+    channel.CONFIG.timeScale = 1;
+    return { frames,
+             writes: after.styleWrites - before.styleWrites,
+             skipped: after.styleSkipped - before.styleSkipped,
+             relayouts: after.relayouts - before.relayouts };
+  });
+  // Setting a style invalidates layout or paint whether or not the value moved.
+  // Most frames of a descent produce values identical to the frame before, so
+  // most of this work is avoidable — and staying avoidable is the point.
+  check('most style writes are skipped as unchanged',
+        churn.skipped / (churn.writes + churn.skipped) > 0.6,
+        (100*churn.skipped/(churn.writes+churn.skipped)).toFixed(0)+'% of '+(churn.writes+churn.skipped)+' skipped');
+  check('the document is not relaid out every frame',
+        churn.relayouts < churn.frames * 0.25,
+        churn.relayouts+' relayouts across '+churn.frames+' frames');
+
   // ---- legibility across the whole descent (guards the contrast fix) ----
   const legibility = await page.evaluate(async () => {
     const parse = s => s.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255);

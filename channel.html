@@ -429,6 +429,8 @@
     gutterMinPx: 18,                 // floor for that gutter
     followTauMs: 110,                // horizontal follow: smoothing time constant
     minFontPx: 13,                   // never render smaller than this
+    zoomQuantum: 0.002,              // relayout only when the type size moves this much,
+                                     // as a fraction — 0.2%, well under the 6% the zoom may step
     lineHeight: 1.6,                 // multiple of font size
     bloomMaxPx: 28,                  // hard ceiling on the ember bloom radius. 0.42em is 119px at
                                      // depth-1 type, and blur cost scales with radius over a very
@@ -842,6 +844,27 @@
 
   var view = { fontPx: 0, colWidth: 0, tx: 0, ty: 0, txReady: false };
 
+  // Setting a style invalidates layout or paint whether or not the value
+  // differs, and this runs sixty times a second over a very large element.
+  // Almost every frame of a descent produces a value identical to the last
+  // one — colours are already rounded to whole channels — so the only thing
+  // between the app and free frames is checking before writing.
+  var written = Object.create(null);
+  function setStyle(style, prop, value) {
+    var key = (style.__k || (style.__k = 's' + (++setStyle.n))) + '|' + prop;
+    if (written[key] === value) { setStyle.skipped++; return false; }
+    written[key] = value;
+    setStyle.wrote++;
+    if (prop.charCodeAt(0) === 45 && prop.charCodeAt(1) === 45) style.setProperty(prop, value);
+    else style[prop] = value;
+    return true;
+  }
+  setStyle.n = 0;
+  setStyle.wrote = 0;
+  setStyle.skipped = 0;
+  var relayouts = 0;
+  function forgetStyles() { written = Object.create(null); }
+
   function applyVisuals(d, dtMs, nowReal) {
     var vw = window.innerWidth, vh = window.innerHeight;
 
@@ -849,11 +872,19 @@
     var across = charsAcross(d);
     var fontPx = Math.max(CONFIG.minFontPx, (vw * CONFIG.contentWidthFraction) / (across * metrics.avgCharRatio));
     var colWidth = CONFIG.lineChars * metrics.avgCharRatio * fontPx;
-    if (Math.abs(fontPx - view.fontPx) > 0.005) {
+    // A font-size change relayouts every glyph, and the caret read that
+    // follows then forces that layout synchronously. Quantised relatively:
+    // 0.2% is far below the 6% step the zoom is allowed, and imperceptible,
+    // but it turns sixty relayouts a second into roughly one.
+    if (view.fontPx === 0 || Math.abs(fontPx - view.fontPx) / view.fontPx > CONFIG.zoomQuantum) {
       view.fontPx = fontPx;
       view.colWidth = colWidth;
+      relayouts++;
       el.mirror.style.fontSize = fontPx.toFixed(3) + 'px';
       el.mirror.style.width = colWidth.toFixed(2) + 'px';
+    } else {
+      fontPx = view.fontPx;                   // draw against what is on screen
+      colWidth = view.colWidth;
     }
     var lineH = fontPx * CONFIG.lineHeight;
 
@@ -881,7 +912,8 @@
       view.txReady = true;
     }
     view.ty = ty;
-    el.mirror.style.transform = 'translate3d(' + view.tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
+    setStyle(el.mirror.style, 'transform',
+             'translate3d(' + view.tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px,0)');
 
     /* ---- background: perceptually even pastel -> black ---- */
     var bgLab = mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, d);
@@ -914,19 +946,20 @@
     }
 
     var root = document.documentElement.style;
-    root.setProperty('--bg', labToCss(bgLab));
-    root.setProperty('--ink', labToCss(inkLab));
-    root.setProperty('--bloom', shadows.length ? shadows.join(', ') : '0 0 0 rgba(0,0,0,0)');
-    root.setProperty('--halo', chromeHalo);
-    root.setProperty('--halo-glow', haloGlow);
-    document.body.style.background = labToCss(bgLab);
+    var bgCss = labToCss(bgLab);
+    setStyle(root, '--bg', bgCss);
+    setStyle(root, '--ink', labToCss(inkLab));
+    setStyle(root, '--bloom', shadows.length ? shadows.join(', ') : '0 0 0 rgba(0,0,0,0)');
+    setStyle(root, '--halo', chromeHalo);
+    setStyle(root, '--halo-glow', haloGlow);
+    setStyle(document.body.style, 'background', bgCss);
     void bgL;
 
     /* ---- chrome fade over the first 90 s of WRITING ---- */
     var chromeOpacity = 1 - clamp01(session.writingMs / CONFIG.chromeFadeMs);
     if (session.state === STATE.SURFACING) chromeOpacity = 0;
-    el.chrome.style.opacity = chromeOpacity.toFixed(3);
-    el.chrome.style.pointerEvents = chromeOpacity > 0.05 ? '' : 'none';
+    setStyle(el.chrome.style, 'opacity', chromeOpacity.toFixed(2));
+    setStyle(el.chrome.style, 'pointerEvents', chromeOpacity > 0.05 ? '' : 'none');
 
     document.body.classList.toggle('deep', d > CONFIG.deepCursorHideDepth);
 
@@ -1349,6 +1382,7 @@
     el.viewport.style.display = '';
     el.chrome.style.display = '';
     el.chrome.style.opacity = '1';
+    forgetStyles();
     audio.start();
     renderText(true);
     focusInput();
@@ -1517,6 +1551,7 @@
     document.getElementById('sumStats').innerHTML = html;
     document.getElementById('sumText').textContent = text;
 
+    forgetStyles();
     document.documentElement.style.setProperty('--bg', CONFIG.bgSurface);
     document.documentElement.style.setProperty('--ink', CONFIG.inkSurface);
     document.documentElement.style.setProperty('--bloom', '0 0 0 rgba(0,0,0,0)');
@@ -1657,6 +1692,9 @@
       }
       el.input.selectionStart = el.input.selectionEnd = el.input.value.length;
       noteKeystroke(performance.now());
+    },
+    counters: function () {
+      return { styleWrites: setStyle.wrote, styleSkipped: setStyle.skipped, relayouts: relayouts };
     },
     metrics: function () {
       return {
