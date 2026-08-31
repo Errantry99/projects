@@ -232,6 +232,71 @@
     max-height: 46vh;
     overflow-y: auto;
   }
+  /* ---------- the project library ---------- */
+  #idle { justify-content: flex-start; overflow-y: auto; padding: 0 24px; }
+  .lib { width: min(660px, 100%); text-align: left; padding: 9vh 0 8vh; }
+  .libtop { margin-bottom: 34px; }
+  #projectTitle {
+    font-weight: 400;
+    font-size: clamp(28px, 6vw, 42px);
+    letter-spacing: 0.26em;
+    text-indent: 0.26em;
+    margin: 0 0 10px;
+    outline: none;
+    opacity: 0.92;
+  }
+  #projectTitle:focus { opacity: 1; }
+  #projectTitle:empty::before { content: "untitled"; opacity: 0.35; }
+  .lib .fine {
+    margin: 0;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    opacity: 0.42;
+  }
+  .libact { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 38px; }
+  #addChapter {
+    padding: 13px 26px;
+    min-height: 46px;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+  }
+  .ghostbtn { opacity: 0.7; }
+
+  .chapters { list-style: none; margin: 0; padding: 0; }
+  .chapters li {
+    display: grid;
+    grid-template-columns: 2.4em 1fr auto;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 15px 0;
+    border-top: 1px solid rgba(26,23,20,0.14);
+    cursor: pointer;
+  }
+  .chapters li:hover .ch-title { opacity: 1; }
+  .chapters li:last-child { border-bottom: 1px solid rgba(26,23,20,0.14); }
+  .ch-n {
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    opacity: 0.4;
+    font-variant-numeric: tabular-nums;
+  }
+  .ch-title { font-size: 18px; opacity: 0.88; }
+  .ch-meta {
+    grid-column: 2 / -1;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    opacity: 0.45;
+    font-variant-numeric: tabular-nums;
+  }
+  .ch-deep { font-size: 11.5px; letter-spacing: 0.14em; opacity: 0.5; white-space: nowrap; }
+  .empty { font-size: 15px; opacity: 0.45; margin: 4px 0 0; }
+  .lib .vol { margin-top: 40px; }
+  .btnrow { display: flex; gap: 10px; }
+  #sumSaved { font-size: 12px; letter-spacing: 0.05em; opacity: 0.45; margin: 0 0 30px; }
+  #sumTitle { outline: none; margin-bottom: 8px; }
+  #sumTitle:empty::before { content: "untitled chapter"; opacity: 0.35; }
+  #reader { justify-content: flex-start; padding-top: max(46px, env(safe-area-inset-top)); overflow-y: auto; }
+
   button {
     font-family: var(--serif);
     font-size: 12px;
@@ -265,24 +330,54 @@
   <div id="hint">press esc again to surface</div>
 
   <div class="overlay" id="idle">
-    <h1>channel</h1>
-    <p class="lede">press any key to begin</p>
-    <p class="fine">nothing is saved &mdash; refreshing loses the text</p>
-    <div class="vol">
-      <span>volume</span>
-      <input id="volIdle" type="range" min="0" max="100" value="70" aria-label="volume">
+    <div class="lib">
+      <header class="libtop">
+        <h1 id="projectTitle" contenteditable="true" spellcheck="false"
+            aria-label="Project title">channel</h1>
+        <p class="fine" id="storageNote">kept in this browser only &mdash; nothing leaves this device</p>
+      </header>
+
+      <div class="libact">
+        <button id="addChapter" type="button">add chapter</button>
+        <button id="exportAll" class="ghostbtn" type="button" hidden>export project</button>
+      </div>
+
+      <ol id="chapterList" class="chapters"></ol>
+      <p class="empty" id="chapterEmpty">No chapters yet. Twenty unbroken minutes reaches the bottom.</p>
+
+      <div class="vol">
+        <span>volume</span>
+        <input id="volIdle" type="range" min="0" max="100" value="70" aria-label="volume">
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="reader" hidden>
+    <div class="inner">
+      <div class="textrow">
+        <button id="readerBack" class="ghostbtn" type="button">back</button>
+        <button id="readerCopy" class="ghostbtn" type="button">copy markdown</button>
+      </div>
+      <h2 class="phrase" id="readerTitle"></h2>
+      <div class="stats" id="readerStats"></div>
+      <div class="textwrap"><pre id="readerText"></pre></div>
     </div>
   </div>
 
   <div class="overlay" id="summary" hidden>
     <div class="inner">
-      <h2>session</h2>
-      <div class="phrase" id="sumPhrase"></div>
+      <h2>chapter saved</h2>
+      <div class="phrase" id="sumTitle" contenteditable="true" spellcheck="false"
+           aria-label="Chapter title"></div>
+      <p class="fine" id="sumSaved"></p>
       <div class="stats" id="sumStats"></div>
       <div class="textwrap">
         <div class="textrow">
           <span class="k">what you wrote</span>
-          <button id="copyBtn">copy</button>
+          <span class="btnrow">
+            <button id="copyBtn">copy</button>
+            <button id="backToProject" class="ghostbtn" type="button">back to project</button>
+          </span>
         </div>
         <pre id="sumText"></pre>
       </div>
@@ -668,8 +763,22 @@
     idle: document.getElementById('idle'),
     summary: document.getElementById('summary'),
     volIdle: document.getElementById('volIdle'),
-    volWriting: document.getElementById('volWriting')
+    volWriting: document.getElementById('volWriting'),
+    projectTitle: document.getElementById('projectTitle'),
+    storageNote: document.getElementById('storageNote'),
+    chapterList: document.getElementById('chapterList'),
+    chapterEmpty: document.getElementById('chapterEmpty'),
+    addChapter: document.getElementById('addChapter'),
+    exportAll: document.getElementById('exportAll'),
+    reader: document.getElementById('reader'),
+    readerTitle: document.getElementById('readerTitle'),
+    readerStats: document.getElementById('readerStats'),
+    readerText: document.getElementById('readerText')
   };
+
+  // The library and the reader are screens, not the writing surface; a
+  // keystroke there is navigation or a rename, never the start of a session.
+  function onAShelf() { return !el.idle.hidden || !el.reader.hidden; }
 
   var pre = document.createTextNode('');
   var caretEl = document.createElement('span');
@@ -1005,6 +1114,202 @@
   };
 
   /* =====================================================================
+     The project: a persistent shelf of chapters
+     Each session is one chapter — its own piece, with its own metrics.
+     Everything lives in this browser; nothing is sent anywhere.
+     ===================================================================== */
+  var DB_NAME = 'channel';
+  var DB_VERSION = 1;
+
+  var store = {
+    db: null,
+    available: false,
+    open: function (done) {
+      var finish = function (ok) { store.available = ok; done(); };
+      if (typeof indexedDB === 'undefined') return finish(false);
+      var req;
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { return finish(false); }
+      req.onupgradeneeded = function () {
+        var db = req.result;
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('chapters')) {
+          db.createObjectStore('chapters', { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      req.onsuccess = function () { store.db = req.result; finish(true); };
+      req.onerror = function () { finish(false); };
+      req.onblocked = function () { finish(false); };
+    },
+    put: function (name, value, done) {
+      if (!store.available) return done && done(null);
+      try {
+        var tx = store.db.transaction(name, 'readwrite');
+        var req = tx.objectStore(name).put(value);
+        req.onsuccess = function () { done && done(req.result); };
+        req.onerror = function () { done && done(null); };
+      } catch (e) { done && done(null); }
+    },
+    all: function (name, done) {
+      if (!store.available) return done([]);
+      try {
+        var tx = store.db.transaction(name, 'readonly');
+        var req = tx.objectStore(name).getAll();
+        req.onsuccess = function () { done(req.result || []); };
+        req.onerror = function () { done([]); };
+      } catch (e) { done([]); }
+    },
+    remove: function (name, key, done) {
+      if (!store.available) return done && done();
+      try {
+        var tx = store.db.transaction(name, 'readwrite');
+        tx.objectStore(name)['delete'](key);
+        tx.oncomplete = function () { done && done(); };
+      } catch (e) { done && done(); }
+    }
+  };
+
+  var project = { title: 'channel' };
+  var chapters = [];
+
+  function loadProject(done) {
+    store.all('meta', function (rows) {
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].key === 'project' && rows[i].title) project.title = rows[i].title;
+      }
+      store.all('chapters', function (rows2) {
+        chapters = rows2.sort(function (a, b) { return a.startedAt - b.startedAt; });
+        done();
+      });
+    });
+  }
+
+  function saveProjectTitle() {
+    project.title = (el.projectTitle.textContent || '').trim() || 'untitled';
+    store.put('meta', { key: 'project', title: project.title });
+  }
+
+  // A chapter's title is the first thing you wrote, until you say otherwise.
+  function deriveTitle(text, index) {
+    var line = (text || '').trim().split(/\n/)[0] || '';
+    line = line.replace(/\s+/g, ' ').trim();
+    if (!line) return 'chapter ' + index;
+    if (line.length > 64) {
+      var cut = line.slice(0, 64);
+      var sp = cut.lastIndexOf(' ');
+      line = (sp > 30 ? cut.slice(0, sp) : cut) + '\u2026';
+    }
+    return line;
+  }
+
+  function formatDate(ms) {
+    var d = new Date(ms);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function yaml(v) { return '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'; }
+
+  function chapterMarkdown(ch) {
+    return [
+      '---',
+      'title: ' + yaml(ch.title),
+      'date: ' + new Date(ch.startedAt).toISOString(),
+      'duration: ' + formatDuration(ch.durationMs),
+      'words: ' + ch.words,
+      'wpm: ' + Math.round(ch.wpm),
+      'longest_run: ' + formatDuration(ch.longestRunMs),
+      'regularity: ' + ch.regularity,
+      'deepest: ' + ch.deepest,
+      '---',
+      '',
+      ch.text.trim(),
+      ''
+    ].join('\n');
+  }
+
+  function projectMarkdown() {
+    var out = ['# ' + project.title, ''];
+    for (var i = 0; i < chapters.length; i++) {
+      out.push(chapterMarkdown(chapters[i]));
+      out.push('');
+    }
+    return out.join('\n');
+  }
+
+  function renderLibrary() {
+    el.projectTitle.textContent = project.title;
+    el.chapterList.innerHTML = '';
+    el.chapterEmpty.hidden = chapters.length > 0;
+    el.exportAll.hidden = chapters.length === 0;
+    el.storageNote.textContent = store.available
+      ? 'kept in this browser only \u2014 nothing leaves this device'
+      : 'this browser will not let the page store anything, so chapters last only until you refresh';
+
+    for (var i = 0; i < chapters.length; i++) {
+      var ch = chapters[i];
+      var li = document.createElement('li');
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      li.innerHTML =
+        '<span class="ch-n">' + String(i + 1).padStart(2, '0') + '</span>' +
+        '<span class="ch-title"></span>' +
+        '<span class="ch-deep"></span>' +
+        '<span class="ch-meta"></span>';
+      li.querySelector('.ch-title').textContent = ch.title;
+      li.querySelector('.ch-deep').textContent = ch.deepest;
+      li.querySelector('.ch-meta').textContent =
+        formatDate(ch.startedAt) + ' \u00b7 ' + ch.words + ' words \u00b7 ' + formatDuration(ch.durationMs);
+      (function (chapter) {
+        function open() { showReader(chapter); }
+        li.addEventListener('click', open);
+        li.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
+      })(ch);
+      el.chapterList.appendChild(li);
+    }
+  }
+
+  function showReader(ch) {
+    el.readerTitle.textContent = ch.title;
+    el.readerText.textContent = ch.text.trim();
+    var stats = [
+      ['written', formatDate(ch.startedAt)],
+      ['words', String(ch.words)],
+      ['duration', formatDuration(ch.durationMs)],
+      ['deepest', ch.deepest]
+    ];
+    var html = '';
+    for (var i = 0; i < stats.length; i++) {
+      html += '<div class="stat"><div class="k">' + stats[i][0] + '</div><div class="v">' + stats[i][1] + '</div></div>';
+    }
+    el.readerStats.innerHTML = html;
+    el.reader.dataset.chapterId = String(ch.id);
+    el.idle.hidden = true;
+    el.reader.hidden = false;
+  }
+
+  function saveChapter(text, durationMs, words, wpm) {
+    var ch = {
+      title: deriveTitle(text, chapters.length + 1),
+      text: text,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt || Date.now(),
+      durationMs: durationMs,
+      words: words,
+      wpm: wpm,
+      longestRunMs: session.longestRunMs,
+      regularity: rhythm.regularityScore(),
+      deepest: depthPhrase(session.highWater),
+      highWater: session.highWater
+    };
+    chapters.push(ch);
+    store.put('chapters', ch, function (id) {
+      if (id !== null && id !== undefined) ch.id = id;
+    });
+    return ch;
+  }
+
+  /* =====================================================================
      T7 — begin & surfacing interaction
      ===================================================================== */
   var escArmedUntil = 0;
@@ -1012,7 +1317,59 @@
 
   function focusInput() {
     if (session.state === STATE.SUMMARY) return;
+    if (onAShelf()) return;
     try { el.input.focus({ preventScroll: true }); } catch (e) { el.input.focus(); }
+  }
+
+  function openChapter() {
+    // A fresh sheet. The click is also the user gesture the audio context
+    // needs, so the first keystroke is never the one that has to pay for it.
+    el.input.value = '';
+    el.input.selectionStart = el.input.selectionEnd = 0;
+    lastText = null;
+    lastCaret = -1;
+    session.depth = 0;
+    session.highWater = 0;
+    session.sinceKeyMs = 0;
+    session.writingMs = 0;
+    session.keystrokes = 0;
+    session.runMs = 0;
+    session.longestRunMs = 0;
+    session.lastKeyRealAt = 0;
+    session.surfacingMs = 0;
+    session.startedAt = 0;
+    session.endedAt = 0;
+    setState(STATE.IDLE);
+    rhythm.reset();
+    view.txReady = false;
+    _lastSaved = null;
+    el.idle.hidden = true;
+    el.reader.hidden = true;
+    el.summary.hidden = true;
+    el.viewport.style.display = '';
+    el.chrome.style.display = '';
+    el.chrome.style.opacity = '1';
+    audio.start();
+    renderText(true);
+    focusInput();
+  }
+
+  function closeReader() {
+    el.reader.hidden = true;
+    el.idle.hidden = false;
+  }
+
+  function backToProject() {
+    el.summary.hidden = true;
+    el.reader.hidden = true;
+    el.viewport.style.display = '';
+    el.chrome.style.display = '';
+    setState(STATE.IDLE);
+    session.depth = 0;
+    session.highWater = 0;
+    applyVisuals(0, 0, performance.now());
+    renderLibrary();
+    el.idle.hidden = false;
   }
 
   function beginSession() {
@@ -1051,6 +1408,10 @@
 
   document.addEventListener('keydown', function (e) {
     if (session.state === STATE.SUMMARY) return;
+    if (onAShelf()) {
+      if (e.key === 'Escape' && !el.reader.hidden) { e.preventDefault(); closeReader(); }
+      return;
+    }
 
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -1087,7 +1448,7 @@
   });
 
   document.addEventListener('mousedown', function (e) {
-    if (session.state === STATE.SUMMARY) return;
+    if (session.state === STATE.SUMMARY || onAShelf()) return;
     if (e.target && e.target.tagName === 'INPUT') return;
     setTimeout(focusInput, 0);
   });
@@ -1133,7 +1494,12 @@
     var minutes = durationMs / 60000;
     var wpm = minutes > 0.0001 ? words / minutes : 0;
 
-    document.getElementById('sumPhrase').textContent = depthPhrase(session.highWater);
+    var saved = saveChapter(text, durationMs, words, wpm);
+    _lastSaved = saved;
+    document.getElementById('sumTitle').textContent = saved.title;
+    document.getElementById('sumSaved').textContent = store.available
+      ? 'chapter ' + chapters.length + ' of ' + project.title + ' \u00b7 saved in this browser'
+      : 'not saved \u2014 this browser will not let the page store anything';
 
     var stats = [
       ['duration', formatDuration(durationMs), ''],
@@ -1161,6 +1527,44 @@
     el.summary.hidden = false;
     el.input.blur();
   }
+
+  var _lastSaved = null;
+
+  document.getElementById('sumTitle').addEventListener('input', function () {
+    if (!_lastSaved) return;
+    _lastSaved.title = (this.textContent || '').trim() || deriveTitle(_lastSaved.text, chapters.length);
+    store.put('chapters', _lastSaved);
+  });
+  document.getElementById('backToProject').addEventListener('click', backToProject);
+  el.addChapter.addEventListener('click', openChapter);
+  document.getElementById('readerBack').addEventListener('click', closeReader);
+
+  el.projectTitle.addEventListener('input', saveProjectTitle);
+  el.projectTitle.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+  });
+
+  function copyToClipboard(text, btn, label) {
+    function done(ok) {
+      btn.textContent = ok ? 'copied' : 'select & copy';
+      setTimeout(function () { btn.textContent = label; }, 1800);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(legacyCopy(text)); });
+    } else {
+      done(legacyCopy(text));
+    }
+  }
+
+  el.exportAll.addEventListener('click', function () {
+    copyToClipboard(projectMarkdown(), this, 'export project');
+  });
+  document.getElementById('readerCopy').addEventListener('click', function () {
+    var id = Number(el.reader.dataset.chapterId);
+    for (var i = 0; i < chapters.length; i++) {
+      if (chapters[i].id === id) return copyToClipboard(chapterMarkdown(chapters[i]), this, 'copy markdown');
+    }
+  });
 
   document.getElementById('copyBtn').addEventListener('click', function () {
     var btn = this;
@@ -1215,8 +1619,14 @@
   measureFont();
   renderText(true);
   applyVisuals(0, 0, lastFrame);
-  focusInput();
   requestAnimationFrame(frame);
+
+  store.open(function () {
+    loadProject(function () {
+      renderLibrary();
+      if (window.__channelReady) window.__channelReady();
+    });
+  });
 
   /* =====================================================================
      debug / test handle (T3, T5, T9 acceptance scripts)
@@ -1231,6 +1641,13 @@
     get state() { return session.state; },
     begin: beginSession,
     surface: surface,
+    openChapter: openChapter,
+    backToProject: backToProject,
+    store: store,
+    project: project,
+    chapters: function () { return chapters; },
+    projectMarkdown: projectMarkdown,
+    chapterMarkdown: chapterMarkdown,
     key: function (ch) {                   // simulate a keystroke, honouring real time
       if (session.state === STATE.IDLE) beginSession();
       if (ch === '\b') {
