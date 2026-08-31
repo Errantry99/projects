@@ -9,6 +9,8 @@
     --bg: #F2E8DB;
     --ink: #1A1714;
     --bloom: 0 0 0 rgba(0,0,0,0);
+    --halo: 0 0 0 rgba(0,0,0,0);
+    --halo-glow: rgba(0,0,0,0);
     --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", Times, serif;
   }
   * { box-sizing: border-box; }
@@ -48,6 +50,7 @@
     color: var(--ink);
   }
   #caret {
+    box-shadow: var(--bloom);
     background: var(--ink);
     color: var(--bg);
     border-radius: 0.04em;
@@ -88,6 +91,7 @@
     z-index: 5;
   }
   #chrome .corner {
+    text-shadow: var(--halo);
     position: absolute;
     font-size: 13px;
     letter-spacing: 0.14em;
@@ -154,6 +158,7 @@
   #idle .vol  { display: flex; align-items: center; gap: 12px; font-size: 12px; letter-spacing: 0.14em; opacity: 0.5; }
 
   #hint {
+    text-shadow: var(--halo);
     position: absolute;
     left: 0;
     right: 0;
@@ -323,15 +328,30 @@
     wordsAcrossDeep: 1.5,            // words visible across the viewport at depth 1
     charsPerWord: 6.6,               // average word length incl. trailing space
     contentWidthFraction: 0.9,       // fraction of viewport width the text column may use
+    caretAnchor: 0.66,               // where the caret sits across a zoomed line: right of centre,
+                                     // so the words just written keep the room, not the page ahead
+    gutterFraction: 0.07,            // whitespace kept at the leading edge of a zoomed line
+    gutterMinPx: 18,                 // floor for that gutter
+    followTauMs: 110,                // horizontal follow: smoothing time constant
     minFontPx: 13,                   // never render smaller than this
     lineHeight: 1.6,                 // multiple of font size
+    bloomMaxPx: 28,                  // hard ceiling on the ember bloom radius. 0.42em is 119px at
+                                     // depth-1 type, and blur cost scales with radius over a very
+                                     // large element — the glow reads the same well under this
+    haloMaxInnerPx: 6,               // same ceiling for the halo rim
+    haloMaxOuterPx: 18,              // and its spread
 
     bgSurface: '#F2E8DB',            // background at depth 0
     bgDeep: '#000000',               // background at depth 1
     inkSurface: '#1A1714',           // text colour near the surface
     inkEmber: '#8C7F6B',             // text colour in the dark
-    emberTriggerLightness: 0.40,     // background lightness at which the ember crossfade starts
-    emberCrossfadeDepth: 0.15,       // depth span over which ink crossfades to ember
+    inkCrossWindow: 0.14,            // depth span of the ink crossover
+    haloColor: '#F6EEE0',            // legibility halo carried through the crossover
+    haloOnsetContrast: 6.0,          // halo fades in as ink/background contrast falls below this
+    haloMinAlpha: 0.15,              // below this the halo is invisible but still costs two blur
+                                     // passes over a very large element, so it is not emitted
+    haloInnerEm: 0.055,              // tight rim on the letterforms
+    haloOuterEm: 0.17,               // soft spread
     bloomRadiusEm: 0.42,             // ember bloom radius, in em
     bloomAlpha: 0.5,                 // ember bloom strength at full crossfade
 
@@ -424,6 +444,17 @@
   function labToCss(lab) {
     var rgb = oklabToRgb(lab);
     return 'rgb(' + Math.round(rgb[0] * 255) + ',' + Math.round(rgb[1] * 255) + ',' + Math.round(rgb[2] * 255) + ')';
+  }
+  function relLum(rgb) {
+    return 0.2126 * srgbToLinear(rgb[0]) + 0.7152 * srgbToLinear(rgb[1]) + 0.0722 * srgbToLinear(rgb[2]);
+  }
+  function contrastOf(y1, y2) {
+    var hi = Math.max(y1, y2), lo = Math.min(y1, y2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function rgbaHex(hex, alpha) {
+    var c = hexToRgb(hex);
+    return 'rgba(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ',' + alpha.toFixed(3) + ')';
   }
   function labToRgba(lab, alpha) {
     var rgb = oklabToRgb(lab);
@@ -700,7 +731,7 @@
     return lerp(CONFIG.charsAcrossSurface, deep, easeInOutSine(d));
   }
 
-  var view = { fontPx: 0, colWidth: 0, tx: 0, ty: 0, bgLab: null, inkLab: null };
+  var view = { fontPx: 0, colWidth: 0, tx: 0, ty: 0, txReady: false };
 
   function applyVisuals(d, dtMs, nowReal) {
     var vw = window.innerWidth, vh = window.innerHeight;
@@ -723,40 +754,64 @@
     var cw = caretEl.offsetWidth || fontPx * metrics.avgCharRatio;
     var ch = caretEl.offsetHeight || lineH;
     var ty = vh / 2 - (cy + ch / 2);
-    var tx;
-    if (colWidth <= vw) {
-      tx = (vw - colWidth) / 2;                       // column fits: keep it centred
+    // As the column outgrows the frame the anchor eases from the centre to
+    // right of centre: what is behind the caret is worth screen, what is ahead
+    // of it is blank page. A gutter keeps a zoomed line clear of the edge, and
+    // the view glides toward its target rather than stepping once per keystroke.
+    var gutter = Math.max(CONFIG.gutterMinPx, vw * CONFIG.gutterFraction);
+    var anchor = lerp(0.5, CONFIG.caretAnchor, smoothstep(1, 1.4, colWidth / vw));
+    var targetTx = colWidth <= vw
+      ? (vw - colWidth) / 2
+      : clamp(vw * anchor - (cx + cw / 2), vw - colWidth - gutter, gutter);
+    if (view.txReady && dtMs > 0) {
+      view.tx += (targetTx - view.tx) * (1 - Math.exp(-dtMs / CONFIG.followTauMs));
+      // the glide may lag, but never far enough to carry the caret off the frame
+      view.tx = clamp(view.tx, gutter - cx - cw, vw - gutter - cx);
     } else {
-      tx = vw / 2 - (cx + cw / 2);                    // high zoom: follow the caret
-      tx = clamp(tx, vw - colWidth, 0);
+      view.tx = targetTx;
+      view.txReady = true;
     }
-    if (tx !== view.tx || ty !== view.ty) {
-      view.tx = tx; view.ty = ty;
-      el.mirror.style.transform = 'translate3d(' + tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
-    }
+    view.ty = ty;
+    el.mirror.style.transform = 'translate3d(' + view.tx.toFixed(2) + 'px,' + ty.toFixed(2) + 'px,0)';
 
     /* ---- background: perceptually even pastel -> black ---- */
     var bgLab = mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, d);
     var bgL = bgLab[0];
 
-    /* ---- ink: ember crossfade once the page has gone dark ---- */
-    // Find the depth at which background lightness crosses the trigger, then
-    // crossfade the ink over the following emberCrossfadeDepth of depth.
-    var emberT = 0;
-    if (bgL < CONFIG.emberTriggerLightness) {
-      var start = emberStartDepth();
-      emberT = clamp01((d - start) / CONFIG.emberCrossfadeDepth);
-    }
+    /* ---- ink: crossover at the contrast tie, carried by a halo ---- */
+    var half = CONFIG.inkCrossWindow / 2;
+    var start = emberStartDepth();
+    var emberT = smoothstep(start - half, start + half, d);
     var inkLab = mixOklab(CONFIG.inkSurface, CONFIG.inkEmber, emberT);
+
+    // Through the crossing the ink is worth little against the background, so
+    // a halo carries the letterforms until the ember has contrast of its own.
+    var contrast = contrastOf(relLum(oklabToRgb(inkLab)), relLum(oklabToRgb(bgLab)));
+    var halo = clamp01((CONFIG.haloOnsetContrast - contrast) / (CONFIG.haloOnsetContrast - 1));
+
+    var shadows = [], chromeHalo = '0 0 0 rgba(0,0,0,0)', haloGlow = 'rgba(0,0,0,0)';
+    if (halo > CONFIG.haloMinAlpha) {
+      var hIn = Math.min(CONFIG.haloInnerEm * fontPx, CONFIG.haloMaxInnerPx);
+      var hOut = Math.min(CONFIG.haloOuterEm * fontPx, CONFIG.haloMaxOuterPx);
+      shadows.push('0 0 ' + hIn.toFixed(2) + 'px ' + rgbaHex(CONFIG.haloColor, halo));
+      shadows.push('0 0 ' + hOut.toFixed(2) + 'px ' + rgbaHex(CONFIG.haloColor, halo * 0.75));
+      // the chrome is small type, so it gets a tighter, denser rim
+      chromeHalo = '0 0 2px ' + rgbaHex(CONFIG.haloColor, halo * 0.9) + ', 0 0 6px ' + rgbaHex(CONFIG.haloColor, halo * 0.6);
+      haloGlow = rgbaHex(CONFIG.haloColor, halo * 0.8);
+    }
+    if (emberT > 0) {
+      var bloomPx = Math.min(CONFIG.bloomRadiusEm * emberT * fontPx, CONFIG.bloomMaxPx);
+      shadows.push('0 0 ' + bloomPx.toFixed(2) + 'px ' + labToRgba(inkLab, CONFIG.bloomAlpha * emberT));
+    }
 
     var root = document.documentElement.style;
     root.setProperty('--bg', labToCss(bgLab));
     root.setProperty('--ink', labToCss(inkLab));
-    var bloom = emberT > 0
-      ? '0 0 ' + (CONFIG.bloomRadiusEm * emberT).toFixed(3) + 'em ' + labToRgba(inkLab, CONFIG.bloomAlpha * emberT)
-      : '0 0 0 rgba(0,0,0,0)';
-    root.setProperty('--bloom', bloom);
+    root.setProperty('--bloom', shadows.length ? shadows.join(', ') : '0 0 0 rgba(0,0,0,0)');
+    root.setProperty('--halo', chromeHalo);
+    root.setProperty('--halo-glow', haloGlow);
     document.body.style.background = labToCss(bgLab);
+    void bgL;
 
     /* ---- chrome fade over the first 90 s of WRITING ---- */
     var chromeOpacity = 1 - clamp01(session.writingMs / CONFIG.chromeFadeMs);
@@ -772,15 +827,24 @@
     caretEl.classList.toggle('blink', !on);
   }
 
+  // The ink must cross the background's luminance somewhere: it travels from
+  // near-black to ember while the background travels from paper to black, and
+  // no colour contrasts with both. Crossfading between the two inks passes
+  // through that luminance too, which is how the text used to disappear.
+  // Solve for the depth where both inks are equally legible — the least bad
+  // place for the crossing — and carry the words across it with a halo.
   var _emberStart = null;
   function emberStartDepth() {
     if (_emberStart !== null) return _emberStart;
+    var inkY = relLum(hexToRgb(CONFIG.inkSurface));
+    var emberY = relLum(hexToRgb(CONFIG.inkEmber));
     var lo = 0, hi = 1;
-    for (var i = 0; i < 40; i++) {              // bisect for the trigger depth
+    for (var i = 0; i < 50; i++) {
       var mid = (lo + hi) / 2;
-      if (mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, mid)[0] < CONFIG.emberTriggerLightness) hi = mid; else lo = mid;
+      var bgY = relLum(oklabToRgb(mixOklab(CONFIG.bgSurface, CONFIG.bgDeep, mid)));
+      if (contrastOf(bgY, inkY) < contrastOf(bgY, emberY)) hi = mid; else lo = mid;
     }
-    _emberStart = hi;
+    _emberStart = (lo + hi) / 2;
     return _emberStart;
   }
 
@@ -957,6 +1021,7 @@
     session.startedAt = Date.now();
     session.sinceKeyMs = 0;
     setState(STATE.WRITING);
+    view.txReady = false;
     el.idle.hidden = true;
     focusInput();
   }

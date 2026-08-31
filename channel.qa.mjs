@@ -190,6 +190,60 @@ section('T4 — visual system: zoom, colour, ember, chrome');
   check('no zoom snapping (max step < 6%)', maxStep < 1.06, 'max step '+((maxStep-1)*100).toFixed(2)+'%');
   check('all font sizes readable (>= 13px)', Math.min(...sweep) >= 13, 'min '+Math.min(...sweep).toFixed(1));
 
+  // ---- legibility across the whole descent (guards the contrast fix) ----
+  const legibility = await page.evaluate(async () => {
+    const parse = s => s.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>v/255);
+    const lin = c => c<=0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+    const lum = c => 0.2126*lin(c[0]) + 0.7152*lin(c[1]) + 0.0722*lin(c[2]);
+    const ratio = (a,b) => { const hi=Math.max(a,b), lo=Math.min(a,b); return (hi+0.05)/(lo+0.05); };
+    let worstInk = Infinity, worst = Infinity, worstAt = 0;
+    for (let i = 0; i <= 100; i++) {
+      const d = i/100;
+      channel.session.depth = d; channel.session.highWater = d;
+      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      const bgY = lum(parse(getComputedStyle(document.body).backgroundColor));
+      const inkR = ratio(lum(parse(getComputedStyle(document.getElementById('mirror')).color)), bgY);
+      const sh = getComputedStyle(document.getElementById('mirror')).textShadow;
+      let haloR = 1;
+      const m = sh.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+      if (m && Number(m[1]) > 200) {
+        const a = m[4]===undefined ? 1 : Number(m[4]);
+        haloR = ratio(a*lum([m[1]/255,m[2]/255,m[3]/255]) + (1-a)*bgY, bgY);
+      }
+      worstInk = Math.min(worstInk, inkR);
+      const best = Math.max(inkR, haloR);
+      if (best < worst) { worst = best; worstAt = d; }
+    }
+    return { worstInk, worst, worstAt };
+  });
+  check('text stays legible at every depth (>= 3:1)', legibility.worst >= 3,
+        'min '+legibility.worst.toFixed(2)+':1 @ depth '+legibility.worstAt.toFixed(2));
+  check('the halo is what carries it, not the ink', legibility.worstInk < 1.5,
+        'ink alone bottoms out at '+legibility.worstInk.toFixed(2)+':1');
+
+  // ---- horizontal follow keeps a zoomed line off the frame edge ----
+  const follow = await page.evaluate(async () => {
+    channel.session.depth = 0.62; channel.session.highWater = 0.62;
+    const mir = document.getElementById('mirror'), caret = document.getElementById('caret');
+    let inBounds = true, caretOut = 0, maxLeft = -Infinity, zoomed = 0;
+    for (let i = 0; i < 120; i++) {
+      await new Promise(r=>requestAnimationFrame(r));
+      const b = mir.getBoundingClientRect(), c = caret.getBoundingClientRect();
+      const g = Math.max(18, innerWidth * 0.07);
+      if (b.width > innerWidth) {
+        zoomed++;
+        maxLeft = Math.max(maxLeft, b.left);
+        if (!(b.left <= g + 1 && b.left >= innerWidth - b.width - g - 1)) inBounds = false;
+      }
+      if (c.left < 0 || c.right > innerWidth) caretOut++;
+    }
+    return { inBounds, caretOut, zoomed, gutter: Math.max(18, innerWidth*0.07) };
+  });
+  check('a zoomed line never runs into the frame edge', follow.zoomed > 0 && follow.inBounds,
+        follow.zoomed+' zoomed frames, gutter '+follow.gutter.toFixed(0)+'px');
+  check('the glide never carries the caret off-frame', follow.caretOut === 0,
+        follow.caretOut+' frames off-frame');
+
   check('no page errors', errs.length===0, errs.join('|'));
   await browser.close();
 }
@@ -329,6 +383,9 @@ section('T9 — integration: time-scaled full run, editing at depth, cooling');
     channel.session.writingMs = 0; channel.CONFIG.timeScale = 1;
     channel.session.state = 'THINKING';              // freeze depth so only the chrome changes
     const mir = document.getElementById('mirror');
+    // the horizontal follow glides toward its target, so let it settle before
+    // sampling — otherwise this measures the glide, not the chrome
+    for (let i = 0; i < 90; i++) await new Promise(r=>requestAnimationFrame(r));
     const before = mir.getBoundingClientRect();
     channel.session.writingMs = channel.CONFIG.chromeFadeMs;
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
