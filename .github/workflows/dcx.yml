@@ -1,0 +1,100 @@
+name: dcx
+
+# The dcx workspace (typed-decision compiler) lives in dcx/ as its own npm workspace. This is the
+# PR tier of spec 07 §6: everything runs on the `fixture` backend, so no paid key is ever needed.
+#
+# Planned, not included here: a nightly job running the Laya backend in-process (pinned bundle
+# revision, states <= 512 tokens) on 200 SYNERGY rows, on a schedule and without a GPU (07 §6,
+# "CI backends"). It lands once the Laya backend exists.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "dcx/**"
+      - ".github/workflows/dcx.yml"
+  pull_request:
+    paths:
+      - "dcx/**"
+      - ".github/workflows/dcx.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dcx-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: dcx
+
+# Deliberately no `env:` anywhere in this file: TYPESAFE_API_KEY (or any other provider key) must
+# never reach the PR tier. The first step of each job asserts it is unset.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assert no paid key is present
+        run: |
+          if [ -n "${TYPESAFE_API_KEY:-}" ]; then
+            echo "::error::TYPESAFE_API_KEY is set; the PR tier must run on fixtures only"
+            exit 1
+          fi
+
+      - name: Reject hard-coded API keys
+        run: |
+          pattern='(\bsk-(ant-)?[A-Za-z0-9_-]{20,}|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{36,}|\bgithub_pat_[A-Za-z0-9_]{22,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bAIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----|(TYPESAFE|ANTHROPIC|OPENAI)_API_KEY["'\'']?[[:space:]]*[:=][[:space:]]*["'\''][A-Za-z0-9_-]{12,})'
+          if grep -rInE --exclude-dir=node_modules --exclude-dir=dist "$pattern" .; then
+            echo "::error::hard-coded API key(s) found under dcx/ (see above)"
+            exit 1
+          fi
+          echo "no hard-coded keys found"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dcx/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint and format
+        run: npm run check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit, replay and policy tests (fixture backend)
+        run: npm test
+
+  # The policy suite alone (H5 guard, pinning, licences, no network in tests, cache-key shape):
+  # a fast, separately visible gate. It is also part of `npm test` above.
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assert no paid key is present
+        run: |
+          if [ -n "${TYPESAFE_API_KEY:-}" ]; then
+            echo "::error::TYPESAFE_API_KEY is set; the PR tier must run on fixtures only"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dcx/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Policy tests
+        working-directory: dcx/packages/policy
+        run: npx vitest run --reporter=verbose --silent=false
