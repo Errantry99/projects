@@ -1,0 +1,24 @@
+{
+  "name": "@dcx/store",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SQLite journal, DuckDB warehouse and outbox exporter",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*",
+    "@duckdb/node-api": "^1.5.5-r.5",
+    "better-sqlite3": "^13.0.3"
+  }
+}
