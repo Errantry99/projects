@@ -2,7 +2,7 @@
 
 Fan-out of the "Jev & the System One model class" report (23 Sep 2026, 13-project shortlist)
 into one research document per project, plus a cross-cutting document on the Jev platform
-a 14th investigation ("can Jev play chess?"), and a note on turning small language models into Jev-style classifiers. Each project document was written by a
+a 14th investigation ("can Jev play chess?"), a note on turning small language models into Jev-style classifiers, and a review of Together's tev1 with project ideas. Each project document was written by a
 separate research agent following [`AGENT-BRIEF.md`](AGENT-BRIEF.md) and contains: the idea
 fleshed out (exact Jev questions, what code decides vs the model), market research,
 an implementation plan with phased milestones and a cost model, a **constraints and
@@ -41,6 +41,7 @@ several ideas already exist as launch-week open-source projects.
 | 13 | Backcountry Conditions Sherpa | [13](13-backcountry-conditions-sherpa.md) | 13 | **11** (2/3/2/4) | Personal, non-commercial only; no-go commercial until forecast licence, trip-report permissions and legal advice are in place. |
 | 14 | Can Jev play chess? | [14](14-can-jev-play-chess.md) | n/a | n/a | Yes, weakly (~950 Elo, builders' own numbers) when code lists legal moves and writes out tactical facts. No-go as an engine; go for a two-week test of Stockfish-proposes, Jev-picks-for-persona. |
 | 15 | Small models as System One classifiers | [15](15-small-models-as-system-one-classifiers.md) | n/a | n/a | No TypeSafe tutorial exists; four community recipes (frozen-model logit readout, LoRA on a 0.8–9B decoder, distillation into a ~150M encoder, pre-trained open decision models). Start with SemIf on Qwen3.5-4B as the label-free local fallback. |
+| 16 | tev1 (Together) review and ideas | [16](16-tev1-review-and-ideas.md) | n/a | n/a | tev1 is a LoRA fine-tune of Qwen3.5-4B with a training recipe: one question, 2–24 lettered options, logprobs out; no Score, Noul or multi-question call. Complements Jev as an open, fine-tunable, Jev-free backend. 17 ideas; top three: a Jev-API server for tev1, per-project fine-tunes from our labelled sets, Inbox Reflex with data kept in Australia. |
 
 ## What the agents found that changes the original report
 
