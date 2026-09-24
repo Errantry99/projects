@@ -38,6 +38,7 @@ const DUCKDB_TABLES = [
   "proposals",
   "promotions",
   "processes",
+  "dcx_outbox_applied",
 ];
 const DUCKDB_VIEWS = [
   "training_labels",
@@ -233,6 +234,7 @@ describe("DuckDB warehouse", () => {
       `INSERT INTO promotions (proposal_id, from_status, to_status, approver, decision)
        VALUES ('pr1', 'proposed', 'shadow', 'owner', 'approve')`,
       `INSERT INTO processes (process_id, version, spec, status) VALUES ('screen', 1, '{"nodes":[]}', 'shadow')`,
+      `INSERT INTO dcx_outbox_applied (seq, target_table) VALUES (1, 'labels')`,
     ];
     for (const s of stmts) await conn.run(s);
     for (const t of DUCKDB_TABLES) {

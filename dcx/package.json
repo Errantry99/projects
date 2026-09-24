@@ -17,7 +17,9 @@
     "check:fix": "biome check --write .",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
-    "build": "tsc -b packages/*/tsconfig.build.json projects/*/tsconfig.build.json"
+    "build": "tsc -b packages/*/tsconfig.build.json projects/*/tsconfig.build.json",
+    "demo": "bash scripts/hello-world.sh",
+    "dcx": "node packages/cli/bin/dcx.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

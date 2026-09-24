@@ -373,6 +373,15 @@ CREATE TABLE IF NOT EXISTS processes (
   PRIMARY KEY (process_id, version)
 );
 
+-- The outbox exporter's exactly-once ledger (@dcx/store drainOutbox): one row per journal outbox
+-- seq applied, written in the same DuckDB transaction as that batch's rows. A re-drain after a
+-- crash between commit and `markExported` skips these seqs.
+CREATE TABLE IF NOT EXISTS dcx_outbox_applied (
+  seq          BIGINT PRIMARY KEY,
+  target_table VARCHAR NOT NULL,
+  applied_at   TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
+
 -- ============================================================================================
 -- Calibration macros. calibrate.ts is the TS reference; the two agree to 1e-9 (core tests).
 -- ============================================================================================

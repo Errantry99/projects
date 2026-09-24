@@ -15,7 +15,8 @@ The two stores behind dcx (07 §2 row 1) and the exporter between them.
     `toolIdempotencyKey(run_id, step_no)`.
   - `completeStep` writes the result and its outbox rows in one transaction, and does nothing
     if the step is already completed. `resolveHuman` resolves the task, completes the human
-    step, enqueues the label and moves a `suspended` run to `pending`, all in one transaction.
+    step, enqueues the label and moves a `waiting` (or `suspended`) run to
+    `pending`, all in one transaction.
   - Warehouse-bound rows (labels, trace_steps, routes, judge_uses, llm_calls, ...) only ever
     enter the outbox. `label_id`/`call_id` are assigned when a row is enqueued.
 - **`DuckWarehouse`** (`openDuckWarehouse(path, {readOnly?})`, or `openWarehouseStore`): the
@@ -31,7 +32,10 @@ The two stores behind dcx (07 §2 row 1) and the exporter between them.
     ISO strings.
 - **`drainOutbox(journal, warehouse, {batchSize?})`**: moves pending outbox rows into their
   tables. Each batch's appends, plus its seqs in the `dcx_outbox_applied` ledger, are one
-  DuckDB transaction, so a re-drain after a crash adds nothing. Natural keys dedupe as well.
+  DuckDB transaction, so a re-drain after a crash adds nothing. Natural keys dedupe as well:
+  within a batch `llm_calls` keep the last row per `call_id` (the settled trace), and
+  `content` / `tool_schemas` duplicates are dropped; across batches ON CONFLICT DO NOTHING.
+  JSON columns take scalar strings (a raw LLM text body) as JSON strings.
 
 ```ts
 import { drainOutbox, openDuckWarehouse, openSqliteJournal } from "@dcx/store";

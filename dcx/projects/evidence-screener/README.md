@@ -23,8 +23,10 @@ Customer 1 (doc 08, 07 §4.8): screening one SYNERGY-style review. The review in
   1. A `judge` step asks all seven questions.
   2. The `screen.reduce@1` rule auto-excludes only on a calibrated `fails` or off-topic answer at
      ≥ 0.99, and sends an injection hit to a human.
-  3. A `route` step applies the certified threshold to the question the reducer names. The
-     abstain band goes to the blind LLM, and 5% of records get a hashed audit.
+  3. A `route` step applies the certified threshold (policy `screen.auto_exclude@1`, one row
+     per question, written by `dcx fit`) to the question the reducer names. The abstain band,
+     and any answer that points at no exclusion (`onUnmapped: "llm"`), goes to the blind LLM,
+     which may also include or flag (both reversible). 5% of records get a hashed audit.
   4. The `screen.effect@1` rule records the effect.
 
   `SCREEN_RULES` is in the kernel's `RuleDef` shape.

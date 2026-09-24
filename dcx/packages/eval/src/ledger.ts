@@ -3,20 +3,24 @@
 // (LLM spend + judge spend per non-cached use); the baseline is records × the baseline's
 // measured cost per record.
 
+import type { SavingsLedgerRow } from "@dcx/core";
 import { inList, type WarehouseReader } from "./load.js";
 
-/** One row of core's `savings_ledger` view plus a record count. */
-// TODO(core): promote (core exports no row type for the savings_ledger view).
-export interface SavingsLedgerViewRow {
-  run_id: string;
+/** The columns of core's `savings_ledger` view (`SavingsLedgerRow`) the ledger uses, plus a
+ *  record count. */
+export interface SavingsLedgerViewRow
+  extends Pick<
+    SavingsLedgerRow,
+    | "run_id"
+    | "llm_calls"
+    | "llm_cost_usd"
+    | "judge_uses"
+    | "judge_cache_hits"
+    | "judge_cost_usd"
+    | "total_cost_usd"
+  > {
   workflow?: string | null;
   records: number;
-  llm_calls: number;
-  llm_cost_usd: number;
-  judge_uses: number;
-  judge_cache_hits: number;
-  judge_cost_usd: number;
-  total_cost_usd: number;
   coverage_without_llm?: number | null;
 }
 

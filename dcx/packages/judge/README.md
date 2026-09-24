@@ -30,8 +30,10 @@ const stats = await drain(wh, be, { pin: "jev-1.13.0", budgetUsd: 1 }); // a sec
   billed. A timeout or 5xx retry is assumed billed at the successful attempt's tokens.
 - `countTokens` is ⌈JCS length / 3⌉, because SDK 0.6.0 exposes no tokenizer. The estimate is
   deliberately high. Billing uses the returned `usage`.
-- `wire` and `llm` digest their settings into `modelVersion`. `modelVFor(pin)` gives the
-  `model_v` the worker anti-joins on.
+- `wire` and `llm` digest their settings into `modelVersion`. `Backend.modelVFor(pin)` (now in
+  core) gives the `model_v` the worker anti-joins on.
+- Lint's ranking check fires only on an instruction to order things ("rank the …", "ranked
+  by …"), not on a mention of ranking (an injection asking to be ranked highly).
 - LLM probabilities are `discrete` unless the client returns them. They are never calibrated
   (`calibrated: false`, `backendConfidence: null`).
 - Actions from `decide` are a threshold's own action, `escalate` (abstain band or fail-open),

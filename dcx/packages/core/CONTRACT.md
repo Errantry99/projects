@@ -73,7 +73,7 @@ run the TS directly, and `npm run build` (`tsc -b`) emits `dist/`.
 | `ReasonCode` | `tier0_rule` `above_threshold` `abstain_band` `below_floor` `tier_disagreement` `audit_sample` `budget_exhausted` `judge_error` `model_drift` `no_threshold` `shadow` | no (free text) |
 | `CalibratorMethod` | `identity` `temperature` `platt` `isotonic` `histogram` | calibrators |
 | `OutputKind` | `tool_call` `structured` `choice_like` `text` | llm_calls |
-| `RunStatus` / `StepStatus` | recommended only (`pending running suspended completed failed cancelled` / `running completed failed suspended skipped`) | no (kernel-owned) |
+| `RunStatus` / `StepStatus` | recommended only (`pending running waiting suspended completed failed cancelled` / `running completed failed suspended skipped`); `waiting` (the kernel's name) and `suspended` both mean "parked on a human task" (`WAITING_RUN_STATUSES`) | no (kernel-owned) |
 | `PackMode` | `single` (default) or `pack:<n>` once the equivalence test has passed | no |
 
 **Lifecycle transitions** (`LIFECYCLE_TRANSITIONS`):
@@ -124,7 +124,9 @@ run the TS directly, and `npm run build` (`tsc -b`) emits `dist/`.
 - `AskOpts`: `timeoutMs`, `maxRetries`, `signal?`, `model?` (the pin), `candidateSetHashes?`,
   `packMode?`, `sampleNo?`. The fixture backend uses the last three to rebuild the full cache
   key.
-- `Backend`: `name`, `caps()`, `countTokens(state)`, `ask(state, qs, opts)`.
+- `Backend`: `name`, `caps()`, `countTokens(state)`, `ask(state, qs, opts)`, and optional
+  `modelVFor(pin)`: the `model_v` a pin produces (wire and llm backends append a settings
+  digest); absent means the pin itself.
 
 **Decide** (B §3.4, 07 §4.3):
 - `Decided` has these fields:
@@ -149,11 +151,23 @@ run the TS directly, and `npm run build` (`tsc -b`) emits `dist/`.
 - `HitlTask`: `kind` (`review` | `promotion`), `card`, `decisionPointId?`, `questionRef?`,
   `tiers?`, `reasonCode?`, `priority?`, `deadline?` (epoch ms), `defaultOnTimeout?`, and
   `label?`. When `label` is set, resolving the task writes a `source='human'` label.
-- `RouteSpec<K>`: `decisionPoint`, `state`, `question`, `actions{K→{thresholdRef}}`,
-  `fallback{llm?, human?}`, `shadow?`, `auditRate?`, `budgetUsd?`, `recordId?`.
+- `RouteSpec<K>`: `decisionPoint`, `state`, `question`, `actions: Partial<Record<K, RouteAction>>`,
+  `fallback{llm?, human?}`, `shadow?`, `auditRate?`, `budgetUsd?`, `recordId?`, `onUnmapped?`.
+  - `RouteAction {thresholdRef?, reversible?}`. `thresholdRef` is a `threshold_id` or a
+    `policy_id` shared by one row per question (the router picks the judged question's row).
+    An action without one is never auto-taken by tier 1 but tier 2 may take it; `reversible`
+    lets tier 2 take it against tier 1's candidate.
+  - `onUnmapped`: `human` (default, `no_threshold`) or `llm` (tier 2 decides, `abstain_band`)
+    when the judge's answer maps to no action.
+- `RunCtx.judge(name, {state, questions, options?, mode?, recordId?})`: `recordId` fills
+  `judge_uses.record_id`.
 - `Routed<K>`: `branch` (a `K` or `"human"`), `reason`, `tiers`, `costUsd`, `audited?`.
 - `TierResult`: `tier` (0 to 3), `kind`, `answer`, `p`, `costUsd`, `reason?`, `thresholdId?`.
 - `ToolSchema {name, description?, inputSchema}`; `JsonSchema`, which is opaque.
+
+**Run input.** The journal has no input column. `runs.input_ref` is `inline:<JCS>`
+(`RUN_INPUT_INLINE`, `encodeRunInput`, `decodeRunInput` in hash.ts) for an inline input
+document, or else a `content.ref`. The kernel stores `{input, forkOf?, forkAt?}` inline.
 
 **Journal** (SQLite; C §3.8). All methods are async, so a Postgres journal can be added later.
 - Runs: `startRun`, `getRun`, `updateRun`, `lease(executorId, ttlMs)`, `heartbeat`.
@@ -176,8 +190,9 @@ run the TS directly, and `npm run build` (`tsc -b`) emits `dist/`.
 **Warehouse** (DuckDB):
 - `Warehouse`:
   - `path`, `all(sql, params)`, `run(sql, params)`;
-  - `appendRows(table, rows, {onConflict: "error" | "ignore"})`, where `ignore` means
-    ON CONFLICT DO NOTHING, used for the judgments cache;
+  - `appendRows(table, rows: AppendRow[], {onConflict: "error" | "ignore"})`, where `ignore`
+    means ON CONFLICT DO NOTHING, used for the judgments cache. `AppendRow` is `object`, so
+    the `*Row` interfaces pass without a cast;
   - `transaction(fn)`, `close()`.
 - The opener types are `WarehouseOpener` and `JournalOpener`. `@dcx/store` implements them.
 - Table-name unions: `WarehouseTable`, `JournalTable`.
@@ -188,7 +203,8 @@ run the TS directly, and `npm run build` (`tsc -b`) emits `dist/`.
 - `TraceRow`, also exported as `LlmCallRow`: the `llm_calls` trace contract;
 - `TraceStepRow`, `ToolSchemaRow`, `RouteRow`, `LabelRow`, `CalibratorRow`, `ThresholdRow`,
   `PriceRow`;
-- `DecisionPointRow`, `ProposalRow`, `PromotionRow`, `ProcessRow`.
+- `DecisionPointRow`, `ProposalRow`, `PromotionRow`, `ProcessRow`;
+- `SavingsLedgerRow` (the `savings_ledger` view) and `OutboxAppliedRow` (`dcx_outbox_applied`).
 
 ## 5. Hashing rules (`src/hash.ts`)
 
@@ -335,6 +351,7 @@ test checks it.
 | `proposals` | status CHECK = lifecycle |
 | `promotions` | discovery (weeks 4–6) |
 | `processes` | PK (process_id, version) |
+| `dcx_outbox_applied` | PK seq; the exporter's exactly-once ledger (one row per drained outbox seq) |
 | `schema_migrations` | migration bookkeeping |
 
 **Views:**

@@ -1,5 +1,11 @@
 // @dcx/store: SQLite journal, DuckDB warehouse and outbox exporter. See ../README.md.
-export { type DrainResult, drainOutbox, OUTBOX_LEDGER_TABLE, outboxUuid } from "./exporter.js";
+export {
+  type DrainResult,
+  dedupeBatch,
+  drainOutbox,
+  OUTBOX_LEDGER_TABLE,
+  outboxUuid,
+} from "./exporter.js";
 export {
   JournalDivergenceError,
   openJournalStore,

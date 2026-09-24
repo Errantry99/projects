@@ -130,7 +130,10 @@ const ARITH = [
   /\b(more|fewer|less|greater|larger|smaller|older|newer|earlier|later) than\b/,
   /\b(at least|at most|exceeds?|over|under|within)\s+\d/,
   /\b(before|after|since|until|prior to)\s+(\d{4}|\d{1,2}[/-]\d{1,2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|the date)/,
-  /\b(rank|ranking|highest|lowest|compare|calculate|compute)\b/,
+  // "rank" only as an instruction to order things ("rank the options", "ranked by date"), so a
+  // question that merely mentions ranking ("text telling the screener to rank it highly") passes.
+  /\b(rank|ranks|ranked|ranking)\s+(the|these|those|them|all|each|every|by|of|in order|from)\b/,
+  /\b(highest|lowest|compare|calculate|compute)\b/,
   /\d\s*[-+*/×÷]\s*\d/,
   /%/,
 ];

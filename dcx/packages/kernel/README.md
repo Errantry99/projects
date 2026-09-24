@@ -36,11 +36,14 @@ await fork(k, runId, 5, { override }); // keep steps < 5, re-execute from 5
 
 ## Router rules (`router.ts`)
 
-- **Threshold rows.** They are read from `thresholds`. A row applies only if it is `active`
-  and matches the decision's question hash, model and calibrator; otherwise the reason is
-  `no_threshold`.
+- **Threshold rows.** They are read from `thresholds` after the judge answers. An action's
+  `thresholdRef` is a `threshold_id` or a `policy_id` (one row per question; the judged
+  question's newest valid row is used). A row applies only if it is `active` and matches the
+  decision's question hash, model and calibrator; otherwise the reason is `no_threshold`.
 - **Mapping answers to actions.** The rule's `label` maps an answer to an action. A null label
-  means the action key is itself the answer.
+  means the action key is itself the answer. An answer that maps to no action goes to human
+  (`no_threshold`), or to tier 2 with no candidate (`abstain_band`) when the route sets
+  `onUnmapped: "llm"`. An action without a `thresholdRef` is only ever taken by tier 2.
 - **Tier 1 outcomes:**
   - `p ≥ min_p` → `above_threshold`;
   - `p ≥ abstain_band[0]` (or the `floor` column) → tier 2 with `abstain_band`;
@@ -63,19 +66,17 @@ await fork(k, runId, 5, { override }); // keep steps < 5, re-execute from 5
   - semconv is pinned at `SEMCONV_VERSION` 1.42.0;
   - the custom span kinds are `dcx.classify` and `dcx.route`;
   - content capture is off, so spans carry hashes and refs only.
-- `JudgeService` and `LlmClient` are the injection seams. `@dcx/judge`'s `askLive` is lower
-  level, so the CLI needs an adapter that:
-  1. resolves the refs;
-  2. calls `askLive` with `writeUses: false`;
-  3. runs `decide()`;
-  4. maps the result to `{decided, uses, costUsd}`.
+- `JudgeService` and `LlmClient` are the injection seams. `@dcx/cli`'s `WarehouseJudge` adapts
+  `@dcx/judge`: it resolves the refs, calls `askLive` with `writeUses: false`, runs `decide()`
+  with the active calibrator and thresholds from the warehouse, and maps the result to
+  `{decided, uses, costUsd}`. `FixtureLlm` (also in the CLI) replays recorded LLM responses.
 
 ## Notes
 
-- Run input and fork metadata are kept inline in `runs.input_ref` (`inline:<JCS>`).
+- Run input and fork metadata are kept inline in `runs.input_ref` (core's `encodeRunInput`).
 - `hitl_queue.card` is `{view, label}`.
 - The `content` and `tool_schemas` rows are content-addressed, so the exporter must ignore
   duplicates.
 
-Tests (`npx vitest run`) use a minimal SQLite journal and DuckDB warehouse over core's openers
-(`test/stores.ts`, marked `TODO(store): replace`).
+Tests (`npx vitest run`) run on `@dcx/store`'s `SqliteJournal`, `DuckWarehouse` and
+`drainOutbox` in a temp directory (`test/stores.ts`).

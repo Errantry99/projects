@@ -8,8 +8,9 @@ import { randomUUID } from "node:crypto";
 import {
   type Candidate,
   type CandidateSpec,
-  canonicalize,
   type Decided,
+  decodeRunInput,
+  encodeRunInput,
   type HitlTask,
   type Json,
   type JsonObject,
@@ -73,8 +74,8 @@ export class StepFailed extends Error {
   override name = "StepFailed";
 }
 
-/** Run metadata kept in `runs.input_ref` (the run row has no input column).
- *  TODO(core): promote a runs input/meta column; kept inline as `inline:<JCS>` for now. */
+/** Run metadata kept in `runs.input_ref` with core's inline convention (`inline:<JCS>`, see
+ *  `encodeRunInput`): the journal has no input column. */
 export interface RunMeta {
   input: Json;
   forkOf?: string;
@@ -83,12 +84,11 @@ export interface RunMeta {
 }
 
 export function encodeMeta(m: RunMeta): string {
-  return `inline:${canonicalize(asJson(m))}`;
+  return encodeRunInput(asJson(m));
 }
 
 export function decodeMeta(ref: string | null | undefined): RunMeta {
-  if (!ref?.startsWith("inline:")) return { input: null };
-  return JSON.parse(ref.slice(7)) as RunMeta;
+  return (decodeRunInput(ref) as RunMeta | null) ?? { input: null };
 }
 
 /** `now()` and `random()` are journaled as `rule` steps with these names (no clock kind in the

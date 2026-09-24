@@ -33,22 +33,36 @@ import { asJson, type StepDone, type StepEnv } from "../types.js";
 import { judgeUseRows, needJudge } from "./judge.js";
 import { callLlm, settleTrace } from "./llm.js";
 
-/** Load the threshold rows a route names (active status is checked by the router). */
+/** Load the threshold rows a route names. A ref is a `threshold_id`, or a `policy_id` shared by
+ *  one row per question: with `questionHash`, only that question's rows are read, and a policy
+ *  ref resolves to its newest valid row (active status is checked by the router). */
 export async function loadThresholds(
   wh: Warehouse,
   ids: readonly string[],
+  questionHash?: string,
 ): Promise<Map<string, ThresholdView>> {
   const out = new Map<string, ThresholdView>();
   if (ids.length === 0) return out;
+  const list = ids.map(() => "?").join(", ");
   const rows = await wh.all(
-    `SELECT threshold_id, question_hash, backend, model_v, calibrator_id, action, rule, floor,
-            status FROM thresholds
-      WHERE threshold_id IN (${ids.map(() => "?").join(", ")})
+    `SELECT threshold_id, policy_id, question_hash, backend, model_v, calibrator_id, action,
+            rule, floor, status FROM thresholds
+      WHERE (threshold_id IN (${list}) OR policy_id IN (${list}))
+        ${questionHash === undefined ? "" : "AND question_hash = ?"}
         AND valid_from <= current_timestamp
-        AND (valid_to IS NULL OR valid_to > current_timestamp)`,
-    ids,
+        AND (valid_to IS NULL OR valid_to > current_timestamp)
+      ORDER BY status = 'active', valid_from`,
+    [...ids, ...ids, ...(questionHash === undefined ? [] : [questionHash])],
   );
-  for (const r of rows) out.set(String(r.threshold_id), toThresholdView(r));
+  // Ascending order: later (active, newer) rows overwrite earlier ones; an exact id wins.
+  for (const r of rows) {
+    const v = toThresholdView(r);
+    if (ids.includes(String(r.policy_id))) out.set(String(r.policy_id), v);
+  }
+  for (const r of rows) {
+    if (ids.includes(String(r.threshold_id)))
+      out.set(String(r.threshold_id), toThresholdView(r));
+  }
   return out;
 }
 
@@ -140,20 +154,20 @@ export async function execRoute<K extends string>(
     if (a !== null) plan = { next: "act", branch: a, reason: "tier0_rule", thresholdId: null };
   }
 
-  // Tier 1: the judge against the threshold rows.
+  // Tier 1: the judge against the threshold rows (looked up for the judged question).
   if (plan === null) {
-    const th = await loadThresholds(
-      env.deps.warehouse,
-      keys.map((k) => spec.actions[k].thresholdRef),
-    );
-    const byKey: Partial<Record<K, ThresholdView>> = {};
-    for (const k of keys) {
-      const t = th.get(spec.actions[k].thresholdRef);
-      if (t) byKey[k] = t;
-    }
     const before = cost;
     const d = await judge(spec.question, env.mode);
-    plan = tier1Plan(d, keys, byKey);
+    const refOf = (k: K) => spec.actions[k]?.thresholdRef;
+    const refs = keys.map(refOf).filter((r): r is string => r !== undefined);
+    const th = await loadThresholds(env.deps.warehouse, refs, d?.questionHash);
+    const byKey: Partial<Record<K, ThresholdView>> = {};
+    for (const k of keys) {
+      const ref = refOf(k);
+      const t = ref === undefined ? undefined : th.get(ref);
+      if (t) byKey[k] = t;
+    }
+    plan = tier1Plan(d, keys, byKey, spec.onUnmapped ? { onUnmapped: spec.onUnmapped } : {});
     tiers.push({
       tier: 1,
       kind: "judge",
@@ -188,8 +202,7 @@ export async function execRoute<K extends string>(
       costUsd: res.costUsd,
       reason: plan.reason,
     });
-    const reversible = (k: K) =>
-      (spec.actions[k] as { reversible?: boolean }).reversible === true;
+    const reversible = (k: K) => spec.actions[k]?.reversible === true;
     verdict = tier2Verdict(plan, answer, keys, reversible);
     outbox.push(
       ...rows,

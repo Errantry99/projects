@@ -196,7 +196,12 @@ describe("screen-compiled@1", () => {
     const spec = ctx.steps[2]?.req as RouteSpec<string>;
     expect(spec.auditRate).toBe(0.05);
     expect(spec.fallback.llm?.teacherBlind).toBe(true);
-    expect(spec.actions).toEqual({ exclude: { thresholdRef: "screen.auto_exclude@1" } });
+    expect(spec.actions).toEqual({
+      exclude: { thresholdRef: "screen.auto_exclude@1" },
+      include: { reversible: true },
+      flag: { reversible: true },
+    });
+    expect(spec.onUnmapped).toBe("llm");
     expect(ctx.steps.at(-1)?.req).toMatchObject({ ref: "screen.effect@1" });
   });
 

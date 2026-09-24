@@ -39,7 +39,8 @@ export async function memoryWarehouse(): Promise<Warehouse & { conn: Conn }> {
     async appendRows(table: WarehouseTable, rows, opts = {}) {
       const t = await colTypes(table);
       let n = 0;
-      for (const row of rows) {
+      for (const input of rows) {
+        const row = input as Record<string, SqlValue | undefined>;
         const cols = Object.keys(row).filter((k) => row[k] !== undefined);
         const vals = cols.map((c, i) => {
           const ty = t.get(c) ?? "VARCHAR";

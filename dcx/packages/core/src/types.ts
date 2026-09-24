@@ -85,14 +85,19 @@ export const STEP_KINDS: readonly StepKind[] = [
   "route",
 ];
 
-/** Recommended run statuses (no CHECK; the kernel owns the state machine). 03 §3.2. */
+/** Recommended run statuses (no CHECK; the kernel owns the state machine). 03 §3.2.
+ *  `waiting` is a run parked on a human step (the kernel's name); `suspended` is kept as a
+ *  synonym. The journal's `resolveHuman` moves either back to `pending`. */
 export type RunStatus =
   | "pending"
   | "running"
+  | "waiting"
   | "suspended"
   | "completed"
   | "failed"
   | "cancelled";
+/** Run statuses that mean "parked on a human task". */
+export const WAITING_RUN_STATUSES: readonly RunStatus[] = ["waiting", "suspended"];
 /** Recommended step statuses (no CHECK). */
 export type StepStatus = "running" | "completed" | "failed" | "suspended" | "skipped";
 
@@ -298,6 +303,10 @@ export interface Backend {
   /** Pre-flight for caps and budgets (refuse, never truncate). */
   countTokens(state: Json): number;
   ask(state: Json, qs: readonly QuestionDef[], o: AskOpts): Promise<RawDecision>;
+  /** The `model_v` a pin produces. Backends that append a settings digest (wire, llm) return
+   *  `modelVersionWithSettings(pin, settings)`, so the worker's anti-join uses the `model_v`
+   *  the judgments rows will carry. Absent → the pin itself. */
+  modelVFor?(pin: string): string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -435,14 +444,28 @@ export interface TierResult {
   thresholdId?: string | null;
 }
 
+/** One action a route may take. 07 §4.3, 03 §3.4. */
+export interface RouteAction {
+  /** A `thresholds.threshold_id`, or a `thresholds.policy_id` shared by one row per question
+   *  (the router picks the row for the judged question). Absent: tier 1 never auto-takes this
+   *  action, but tier 2 (the LLM) may. */
+  thresholdRef?: string;
+  /** Tier 2 may take this action even when it disagrees with tier 1's candidate. */
+  reversible?: boolean;
+}
+
 /** A `route` step: cascade router over tiers. 07 §4.3, 03 §3.4. */
 export interface RouteSpec<K extends string> {
   decisionPoint: string;
   state: Json;
   /** Question ref, e.g. `"inbox.category@3"`. */
   question: string;
-  /** τ, band, floor and on_error live in the threshold row, never in code. */
-  actions: Record<K, { thresholdRef: string }>;
+  /** τ, band, floor and on_error live in the threshold row, never in code. Keys are the
+   *  branches the route can take; not every branch needs a threshold. */
+  actions: Partial<Record<K, RouteAction>>;
+  /** Tier 1 when the judge's answer maps to no action: `human` (default; reason no_threshold)
+   *  or `llm` (tier 2 decides with no candidate; reason abstain_band). */
+  onUnmapped?: "human" | "llm";
   fallback: { llm?: LlmReq<{ answer: K }>; human?: HitlTask };
   /** Candidate processes/questions evaluated effect-free (mode shadow). */
   shadow?: string[];
@@ -473,7 +496,14 @@ export interface RunCtx {
   ): Promise<{ candidates: Candidate[]; candidateSetHash: string }>;
   judge(
     name: string,
-    req: { state: Json; questions: string[]; options?: Record<string, Option[]>; mode?: Mode },
+    req: {
+      state: Json;
+      questions: string[];
+      options?: Record<string, Option[]>;
+      mode?: Mode;
+      /** Fills `judge_uses.record_id` (and the step's trace record). */
+      recordId?: string;
+    },
   ): Promise<Decided[]>;
   llm<T extends Json>(name: string, req: LlmReq<T>): Promise<LlmRes<T>>;
   tool<T extends Json>(
@@ -506,6 +536,9 @@ export interface RunRow {
   workflow_v: number;
   mode: Mode;
   status: RunStatus | string;
+  /** Where the run's input lives. Convention (`RUN_INPUT_INLINE`): `inline:<JCS>` holds the
+   *  input (and kernel run metadata) inline; any other value is a `content.ref`. See
+   *  `encodeRunInput` / `decodeRunInput` in hash.ts. */
   input_ref?: string | null;
   executor_id?: string | null;
   lease_until?: number | null;
@@ -669,6 +702,10 @@ export type WarehouseTable =
   | "promotions"
   | "processes";
 
+/** A row for `appendRows`: keys are column names, values `SqlValue | undefined`. `object` so
+ *  interface rows (`JudgmentRow`, ...) pass without a cast (they have no index signature). */
+export type AppendRow = object;
+
 /** A value bindable as a SQL parameter or appended into a column. */
 export type SqlValue =
   | string
@@ -692,7 +729,7 @@ export interface Warehouse {
    *  (the judgments cache). Returns rows written. */
   appendRows(
     table: WarehouseTable,
-    rows: readonly Record<string, SqlValue | undefined>[],
+    rows: readonly AppendRow[],
     opts?: { onConflict?: "error" | "ignore" },
   ): Promise<number>;
   transaction<T>(fn: (wh: Warehouse) => Promise<T>): Promise<T>;
@@ -992,6 +1029,31 @@ export interface ThresholdRow {
   valid_from?: string;
   valid_to?: string | null;
   status: "candidate" | "active" | "stale" | "human_only" | "retired";
+}
+
+/** One row of the `savings_ledger` view (per run). 05 §3.3, CONTRACT §8. */
+export interface SavingsLedgerRow {
+  run_id: string;
+  workflow: string | null;
+  workflow_v: number | null;
+  llm_calls: number;
+  llm_cost_usd: number;
+  judge_uses: number;
+  judge_cache_hits: number;
+  judge_cost_usd: number;
+  total_cost_usd: number;
+  routes: number;
+  routes_auto: number;
+  routes_human: number;
+  /** routes_auto / routes; null when the run had no route. */
+  coverage_without_llm: number | null;
+}
+
+/** `dcx_outbox_applied`: the exporter's exactly-once ledger (one row per drained outbox seq). */
+export interface OutboxAppliedRow {
+  seq: number;
+  target_table: WarehouseTable;
+  applied_at?: string;
 }
 
 /** `prices`. 02 §3.8. */

@@ -50,10 +50,16 @@ export async function execJudge(env: StepEnv, req: JudgeReq): Promise<StepDone> 
     questions: req.questions,
     ...(req.options ? { options: req.options } : {}),
     mode,
+    ...(req.recordId ? { recordId: req.recordId } : {}),
   });
+  const rec = req.recordId;
+  const uses: JudgeUse[] = rec
+    ? lj.uses.map((u) => ({ ...u, recordId: u.recordId ?? rec }))
+    : lj.uses;
   return {
     output: asJson({ decided: lj.decided, costUsd: lj.costUsd }),
-    outbox: judgeUseRows(env, lj.uses, mode),
+    outbox: judgeUseRows(env, uses, mode),
+    recordId: req.recordId ?? null,
     effect: {
       effect: { kind: "judge", answers: lj.decided.map((d) => d.answer) },
       branch: lj.decided.length === 1 ? (lj.decided[0]?.answer ?? null) : null,

@@ -351,3 +351,17 @@ export function modelVersionWithSettings(
 export function hashUnit(s: string): number {
   return Number.parseInt(sha256Hex(s).slice(0, 13), 16) / 2 ** 52;
 }
+
+/** Prefix of an inline `runs.input_ref`: `inline:<JCS of the run input document>`. */
+export const RUN_INPUT_INLINE = "inline:";
+
+/** Encode a run input document into `runs.input_ref` (the journal has no input column). */
+export function encodeRunInput(doc: Json): string {
+  return `${RUN_INPUT_INLINE}${canonicalize(doc)}`;
+}
+
+/** Decode an inline `runs.input_ref`; null for an absent ref or a `content.ref`. */
+export function decodeRunInput(ref: string | null | undefined): Json | null {
+  if (!ref?.startsWith(RUN_INPUT_INLINE)) return null;
+  return JSON.parse(ref.slice(RUN_INPUT_INLINE.length)) as Json;
+}

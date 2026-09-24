@@ -3,6 +3,7 @@
 // (0.99, from criteria.json), then route: above the certified threshold → exclude; abstain
 // band → the blind LLM (same prompt as the baseline, never shown the judge's answers); a 5%
 // hashed audit re-asks the LLM; below the floor → human. An injection hit forces human review.
+// A judge answer that points at no exclusion (e.g. `meets`) escalates to the blind LLM.
 import type { Decided, HitlTask, Json, RunCtx, Workflow } from "@dcx/core";
 import { CRITERIA, type ScreenCriteria } from "../src/criteria.js";
 import { QUESTION_REFS } from "../src/questions.js";
@@ -100,6 +101,7 @@ export const screenCompiled: Workflow<ScreenInput, ScreenOutput> = {
     const decided = await ctx.judge("judge_all", {
       state: input.state,
       questions: [...QUESTION_REFS],
+      recordId: input.record_id,
     });
     const reduced = (await ctx.rule("reduce", "screen.reduce@1", {
       decided: decided as unknown as Json,
@@ -124,10 +126,15 @@ export const screenCompiled: Workflow<ScreenInput, ScreenOutput> = {
         decisionPoint: "screen-compiled.route",
         state: input.state,
         question: reduced.question,
-        actions: { exclude: { thresholdRef: policy.exclude_threshold_ref } } as Record<
-          ScreenAnswer,
-          { thresholdRef: string }
-        >,
+        // Only `exclude` is gated by a certified threshold (a policy ref: one row per
+        // question). The blind LLM may include or flag (both reversible: full-text review
+        // follows), and decides when the judge's answer points at no exclusion.
+        actions: {
+          exclude: { thresholdRef: policy.exclude_threshold_ref },
+          include: { reversible: true },
+          flag: { reversible: true },
+        },
+        onUnmapped: "llm",
         fallback: {
           llm: screenLlmReq(input, {
             decisionPoint: "screen-compiled.route",

@@ -181,4 +181,32 @@ describe("drainOutbox", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/,
     );
   });
+
+  it("dedupes llm_calls on call_id in a batch (last wins) and ignores repeated content", async () => {
+    const trace = (effect: string | null) => ({
+      target_table: "llm_calls" as const,
+      row: { call_id: "c1", run_id: "r1", step_no: 1, parsed: "plain", branch_taken: effect },
+    });
+    await j.enqueueOutbox([
+      trace(null),
+      { target_table: "content", row: { ref: "sha256:x", body: "raw text" } },
+      { target_table: "tool_schemas", row: { hash: H, name: "t", schema: { type: "object" } } },
+      trace("include"),
+      { target_table: "content", row: { ref: "sha256:x", body: "raw text" } },
+      { target_table: "tool_schemas", row: { hash: H, name: "t", schema: { type: "object" } } },
+    ]);
+    await drainOutbox(j, wh);
+    await j.enqueueOutbox([
+      { target_table: "content", row: { ref: "sha256:x", body: "raw text" } },
+    ]);
+    await drainOutbox(j, wh);
+    expect(await wh.all("SELECT call_id, parsed, branch_taken FROM llm_calls")).toEqual([
+      { call_id: "c1", parsed: "plain", branch_taken: "include" },
+    ]);
+    // A scalar string in a JSON column round-trips as a string.
+    expect(await wh.all("SELECT ref, body FROM content")).toEqual([
+      { ref: "sha256:x", body: "raw text" },
+    ]);
+    expect(await wh.all("SELECT count(*)::INTEGER AS n FROM tool_schemas")).toEqual([{ n: 1 }]);
+  });
 });

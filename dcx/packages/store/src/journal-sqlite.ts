@@ -36,8 +36,8 @@ const UUID_KEYED: Partial<Record<WarehouseTable, string>> = {
   judge_calls: "call_id",
 };
 
-/** Run statuses `lease()` may claim when the lease is absent or expired. A `suspended` run
- *  holds no lease; `resolveHuman` moves it back to `pending`. */
+/** Run statuses `lease()` may claim when the lease is absent or expired. A `waiting` (or
+ *  `suspended`) run holds no lease; `resolveHuman` moves it back to `pending`. */
 export const RESUMABLE_STATUSES = ["pending", "running"] as const;
 
 export interface SqliteJournalOptions {
@@ -451,7 +451,7 @@ export class SqliteJournal implements Journal {
         this.db
           .prepare(
             `UPDATE runs SET status = 'pending', executor_id = NULL, lease_until = NULL
-             WHERE run_id = ? AND status = 'suspended'`,
+             WHERE run_id = ? AND status IN ('suspended', 'waiting')`,
           )
           .run(task.run_id);
       }

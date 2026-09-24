@@ -31,7 +31,8 @@ export async function testWarehouse(): Promise<Warehouse & { handle: WarehouseHa
     async appendRows(table, rows, opts = {}) {
       const ct = await colTypes(table);
       let n = 0;
-      for (const row of rows) {
+      for (const input of rows) {
+        const row = input as Record<string, unknown>;
         const keys = Object.keys(row).filter((k) => row[k] !== undefined);
         const vals: unknown[] = [];
         const exprs = keys.map((k, i) => {

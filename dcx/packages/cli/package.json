@@ -12,6 +12,7 @@
     }
   },
   "scripts": {
+    "dcx": "node bin/dcx.js",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
     "build": "tsc -b tsconfig.build.json"
@@ -24,5 +25,12 @@
     "@dcx/kernel": "*",
     "@dcx/importers": "*",
     "commander": "^15.0.0"
-  }
+  },
+  "bin": {
+    "dcx": "./bin/dcx.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ]
 }

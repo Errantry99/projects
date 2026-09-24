@@ -84,6 +84,17 @@ describe("tier1Plan", () => {
       );
     }
   });
+  it("an unmapped answer escalates to tier 2 only when the route opts in", () => {
+    const t = { exclude: th({ label: "fails", thresholdId: "tx" }) };
+    expect(tier1Plan(dec("meets", 0.99), keys, t).reason).toBe("no_threshold");
+    expect(tier1Plan(dec("meets", 0.99), keys, t, { onUnmapped: "llm" })).toEqual({
+      next: "llm",
+      candidate: null,
+      reason: "abstain_band",
+      thresholdId: null,
+    });
+    expect(tier1Plan(dec("fails", 0.99), keys, t, { onUnmapped: "llm" }).next).toBe("act");
+  });
   it("a threshold label maps a judge answer to an action", () => {
     const t = { exclude: th({ label: "fails", thresholdId: "tx" }) };
     expect(tier1Plan(dec("fails", 0.99), keys, t)).toMatchObject({

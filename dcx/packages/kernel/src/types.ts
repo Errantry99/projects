@@ -37,6 +37,8 @@ export interface JudgeReq {
   questions: string[];
   options?: Record<string, Option[]>;
   mode?: Mode;
+  /** The record judged; fills `judge_uses.record_id`. */
+  recordId?: string;
 }
 
 /** What one live ask() → decide() returns. */
@@ -48,8 +50,9 @@ export interface LiveJudgment {
 }
 
 /**
- * The live judge as the kernel sees it (B's ask() then decide(), cache-aware).
- * TODO(judge): wire to @dcx/judge's `askLive` once it lands; this is the seam the CLI adapts.
+ * The live judge as the kernel sees it (B's ask() then decide(), cache-aware). `@dcx/cli`'s
+ * `WarehouseJudge` implements it over `@dcx/judge`'s `askLive` + `decide`, reading the active
+ * calibrators and thresholds from the warehouse.
  */
 export interface JudgeService {
   askLive(req: {

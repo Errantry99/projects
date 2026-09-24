@@ -88,12 +88,14 @@ export function thresholdApplies(t: ThresholdView | undefined, d: Decided): t is
 /**
  * Tier 1: the judge's calibrated p against the threshold of the action its answer maps to.
  * `d === null` is a judge error: routes fail open to tier 2 unless every threshold says
- * otherwise. Drift → human. No applicable threshold → human (no_threshold).
+ * otherwise. Drift → human. No applicable threshold → human (no_threshold). An answer that maps
+ * to no action → human, or tier 2 with no candidate when `onUnmapped` is `llm`.
  */
 export function tier1Plan<K extends string>(
   d: Decided | null,
   keys: readonly K[],
   th: Partial<Record<K, ThresholdView>>,
+  opts: { onUnmapped?: "human" | "llm" } = {},
 ): Plan<K> {
   if (d === null || !Number.isFinite(d.pCal)) {
     const modes = keys.map((k) => th[k]?.onError).filter((m) => m !== undefined);
@@ -104,6 +106,10 @@ export function tier1Plan<K extends string>(
   }
   if (d.degraded) return { next: "human", reason: "model_drift", thresholdId: null };
   const k = keys.find((key) => (th[key]?.label ?? key) === d.answer);
+  if (k === undefined && opts.onUnmapped === "llm") {
+    // The answer points at no gated action: tier 1 abstains and tier 2 decides.
+    return { next: "llm", candidate: null, reason: "abstain_band", thresholdId: null };
+  }
   const t = k === undefined ? undefined : th[k];
   if (k === undefined || !thresholdApplies(t, d)) {
     return { next: "human", reason: "no_threshold", thresholdId: null };

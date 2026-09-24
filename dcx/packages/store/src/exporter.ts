@@ -19,7 +19,8 @@ import {
   type WarehouseTable,
 } from "@dcx/core";
 
-/** The exporter's ledger table in the warehouse. // TODO(core): promote into duckdb.sql */
+/** The exporter's ledger table in the warehouse (created by core's duckdb.sql; the DDL below
+ *  is kept for warehouses migrated before the table was promoted). */
 export const OUTBOX_LEDGER_TABLE = "dcx_outbox_applied";
 
 const LEDGER_DDL = `CREATE TABLE IF NOT EXISTS ${OUTBOX_LEDGER_TABLE} (
@@ -45,6 +46,34 @@ function prepare(o: OutboxRow): Record<string, SqlValue | undefined> {
   const row: JsonObject =
     key && o.row[key] == null ? { ...o.row, [key]: outboxUuid(o.seq) } : o.row;
   return row as Record<string, SqlValue>;
+}
+
+/** Single-column natural keys deduped inside a batch, keeping the LAST row (the most settled:
+ *  a trace re-emitted with its effect filled). Across batches ON CONFLICT DO NOTHING keeps the
+ *  first. `content` and `tool_schemas` are content-addressed, so any copy is the same row. */
+const BATCH_KEY: Partial<Record<WarehouseTable, string>> = {
+  llm_calls: "call_id",
+  content: "ref",
+  tool_schemas: "hash",
+};
+
+export function dedupeBatch(
+  table: WarehouseTable,
+  rows: readonly Record<string, SqlValue | undefined>[],
+): Record<string, SqlValue | undefined>[] {
+  const key = BATCH_KEY[table];
+  if (!key) return [...rows];
+  const byKey = new Map<unknown, Record<string, SqlValue | undefined>>();
+  const loose: Record<string, SqlValue | undefined>[] = [];
+  for (const r of rows) {
+    const k = r[key];
+    if (k === null || k === undefined) loose.push(r);
+    else {
+      byKey.delete(k);
+      byKey.set(k, r);
+    }
+  }
+  return [...byKey.values(), ...loose];
 }
 
 export interface DrainResult {
@@ -97,7 +126,9 @@ export async function drainOutbox(
       }
       for (const [table, rows] of byTable) {
         try {
-          const n = await wh.appendRows(table, rows.map(prepare), { onConflict: "ignore" });
+          const n = await wh.appendRows(table, dedupeBatch(table, rows.map(prepare)), {
+            onConflict: "ignore",
+          });
           out.inserted += n;
           out.byTable[table] = (out.byTable[table] ?? 0) + n;
         } catch (e) {

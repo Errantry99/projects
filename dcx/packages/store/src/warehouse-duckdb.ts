@@ -9,6 +9,7 @@
 
 import { resolve } from "node:path";
 import {
+  type AppendRow as CoreAppendRow,
   type Json,
   openWarehouse,
   type SqlValue,
@@ -26,10 +27,8 @@ import {
   timestampTZValue,
 } from "@duckdb/node-api";
 
-/** A row for `appendRows`: keys are column names, values `SqlValue | undefined`. Wider than
- *  core's `Record<string, SqlValue | undefined>` so interface rows (`JudgmentRow`, ...) pass
- *  without a cast. // TODO(core): promote (widen `Warehouse.appendRows`). */
-export type AppendRow = object;
+/** A row for `appendRows` (core's `AppendRow`, re-exported for existing importers). */
+export type AppendRow = CoreAppendRow;
 
 /** `Warehouse` with the wider `appendRows`; what `DuckWarehouse` and its transactions offer. */
 export interface WideWarehouse extends Warehouse {
