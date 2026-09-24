@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@dcx/core": "*",
+    "@dcx/importers": "*",
     "@dcx/judge": "*",
     "@dcx/kernel": "*"
   }

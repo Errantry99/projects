@@ -1,0 +1,26 @@
+{
+  "id": "screen.on_topic",
+  "version": 1,
+  "qtype": "noul",
+  "instructions": "The `untrusted_record` is mainly about: physical exercise as a treatment for depression.",
+  "options": [
+    {
+      "label": "true",
+      "description": "the record's main subject is physical exercise as a treatment for depression"
+    },
+    {
+      "label": "false",
+      "description": "physical exercise as a treatment for depression is absent, or only mentioned in passing"
+    }
+  ],
+  "noMatchLabel": null,
+  "optionsSource": "static",
+  "fields": ["untrusted_record.title", "untrusted_record.abstract"],
+  "maxStateTokens": 800,
+  "dataClass": "public",
+  "negationOf": null,
+  "labelCompatible": false,
+  "status": "active",
+  "owner": "evidence-screener",
+  "appliesTo": "abstract"
+}

@@ -1,0 +1,34 @@
+{
+  "id": "screen.crit_4",
+  "version": 1,
+  "qtype": "choice",
+  "instructions": "Does the `untrusted_record` state that it meets this criterion: The study randomly allocates participants to study groups?",
+  "options": [
+    {
+      "label": "meets",
+      "description": "the record explicitly states that the criterion is met"
+    },
+    {
+      "label": "fails",
+      "description": "the record explicitly states the opposite of the criterion"
+    },
+    {
+      "label": "not_stated",
+      "description": "the record does not say whether the criterion is met"
+    },
+    {
+      "label": "other",
+      "description": "none of the three answers above fits, e.g. the criterion cannot apply to this kind of record"
+    }
+  ],
+  "noMatchLabel": "other",
+  "optionsSource": "static",
+  "fields": ["untrusted_record.title", "untrusted_record.abstract"],
+  "maxStateTokens": 800,
+  "dataClass": "public",
+  "negationOf": null,
+  "labelCompatible": false,
+  "status": "active",
+  "owner": "evidence-screener",
+  "appliesTo": "abstract"
+}

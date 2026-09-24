@@ -1,0 +1,39 @@
+{
+  "synthetic": true,
+  "banner": "SYNTHETIC DATA",
+  "review": "synthetic_exercise_depression",
+  "seed": 7,
+  "n_records": 300,
+  "n_included": 30,
+  "generator": "packages/importers/src/synthetic-synergy.ts (mulberry32)",
+  "topic": "physical exercise as a treatment for depression",
+  "criteria": [
+    {
+      "id": "crit_1",
+      "aspect": "population",
+      "text": "The study participants are adults (minimum age 18 years)"
+    },
+    {
+      "id": "crit_2",
+      "aspect": "condition",
+      "text": "The participants have clinically significant depressive symptoms at enrolment"
+    },
+    {
+      "id": "crit_3",
+      "aspect": "intervention",
+      "text": "The intervention being tested is a structured physical exercise programme"
+    },
+    {
+      "id": "crit_4",
+      "aspect": "design",
+      "text": "The study randomly allocates participants to study groups"
+    }
+  ],
+  "inclusion_rule": "Include when the record is on topic, crit_3 and crit_4 are met, and neither crit_1 nor crit_2 fails (not_stated is acceptable for population and condition).",
+  "real_synergy": {
+    "attempted": "2026-09-24",
+    "package": "synergy-dataset 2.2 (PyPI; package licence MIT)",
+    "dataset_licence": "CC0 1.0 (SYNERGY README and LICENSE; OpenAlex metadata is CC0)",
+    "outcome": "blocked: dataverse.nl and api.openalex.org refused by the egress proxy (CONNECT 403)"
+  }
+}

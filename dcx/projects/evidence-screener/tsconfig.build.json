@@ -3,14 +3,17 @@
   "compilerOptions": {
     "noEmit": false,
     "composite": true,
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["src"],
+  "include": ["src", "workflows"],
   "references": [
     {
       "path": "../../packages/core/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/importers/tsconfig.build.json"
     },
     {
       "path": "../../packages/judge/tsconfig.build.json"

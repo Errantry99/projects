@@ -1,3 +1,4 @@
-// @dcx/importers: Trace and dataset importers (SYNERGY, JSONL, OTel).
-// Placeholder created in phase 0; the owning agent fills it in (see ../../BUILD.md).
-export {};
+// @dcx/importers: dataset and trace importers (SYNERGY or its synthetic stand-in, JSONL traces).
+export * from "./jsonl.js";
+export * from "./synergy.js";
+export * from "./synthetic-synergy.js";

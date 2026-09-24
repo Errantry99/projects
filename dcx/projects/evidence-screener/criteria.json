@@ -1,0 +1,35 @@
+{
+  "review": "synthetic_exercise_depression",
+  "synthetic": true,
+  "topic": "physical exercise as a treatment for depression",
+  "criteria": [
+    {
+      "id": "crit_1",
+      "aspect": "population",
+      "text": "The study participants are adults (minimum age 18 years)"
+    },
+    {
+      "id": "crit_2",
+      "aspect": "condition",
+      "text": "The participants have clinically significant depressive symptoms at enrolment"
+    },
+    {
+      "id": "crit_3",
+      "aspect": "intervention",
+      "text": "The intervention being tested is a structured physical exercise programme"
+    },
+    {
+      "id": "crit_4",
+      "aspect": "design",
+      "text": "The study randomly allocates participants to study groups"
+    }
+  ],
+  "inclusion_rule": "Include when the record is on topic, crit_3 and crit_4 are met, and neither crit_1 nor crit_2 fails (not_stated is acceptable for population and condition).",
+  "policy": {
+    "exclude_min_p": 0.99,
+    "injection_max_p": 0.2,
+    "audit_rate": 0.05,
+    "exclude_threshold_ref": "screen.auto_exclude@1"
+  },
+  "baseline_model": "frontier-llm@2026-09-01"
+}
