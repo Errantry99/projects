@@ -40,19 +40,33 @@ export async function loadThresholds(
   wh: Warehouse,
   ids: readonly string[],
   questionHash?: string,
+  judged: { backend?: string | undefined; modelV?: string | undefined } = {},
 ): Promise<Map<string, ThresholdView>> {
   const out = new Map<string, ThresholdView>();
   if (ids.length === 0) return out;
   const list = ids.map(() => "?").join(", ");
+  // Narrow to the judged (question, backend, model) so a row fitted for another backend or pin
+  // under the same policy cannot shadow this one.
+  const where: string[] = [];
+  const extra: string[] = [];
+  for (const [col, v] of [
+    ["question_hash", questionHash],
+    ["backend", judged.backend],
+    ["model_v", judged.modelV],
+  ] as const) {
+    if (v === undefined) continue;
+    where.push(`AND ${col} = ?`);
+    extra.push(v);
+  }
   const rows = await wh.all(
     `SELECT threshold_id, policy_id, question_hash, backend, model_v, calibrator_id, action,
             rule, floor, status FROM thresholds
       WHERE (threshold_id IN (${list}) OR policy_id IN (${list}))
-        ${questionHash === undefined ? "" : "AND question_hash = ?"}
+        ${where.join(" ")}
         AND valid_from <= current_timestamp
         AND (valid_to IS NULL OR valid_to > current_timestamp)
       ORDER BY status = 'active', valid_from`,
-    [...ids, ...ids, ...(questionHash === undefined ? [] : [questionHash])],
+    [...ids, ...ids, ...extra],
   );
   // Ascending order: later (active, newer) rows overwrite earlier ones; an exact id wins.
   for (const r of rows) {
@@ -160,7 +174,10 @@ export async function execRoute<K extends string>(
     const d = await judge(spec.question, env.mode);
     const refOf = (k: K) => spec.actions[k]?.thresholdRef;
     const refs = keys.map(refOf).filter((r): r is string => r !== undefined);
-    const th = await loadThresholds(env.deps.warehouse, refs, d?.questionHash);
+    const th = await loadThresholds(env.deps.warehouse, refs, d?.questionHash, {
+      backend: d?.backend,
+      modelV: d?.modelVersion,
+    });
     const byKey: Partial<Record<K, ThresholdView>> = {};
     for (const k of keys) {
       const ref = refOf(k);

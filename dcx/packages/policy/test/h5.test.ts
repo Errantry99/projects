@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   exportedFunctionNames,
   formatViolations,
+  h5Files,
   scanH5,
   scanWorkspaceH5,
   trainingReason,
@@ -47,6 +48,31 @@ describe("H5 guard: training code reads only training_labels", () => {
     expect(v[0]?.file).toBe("packages/x/src/fit.ts");
     expect(v[0]?.reason).toMatch(/judgments.*training_labels/);
     expect(scanH5("packages/x/src/other.ts", "SELECT * FROM judgments")).toEqual([]);
+  });
+});
+
+describe("H5 guard: bypasses closed in review", () => {
+  it("catches reads split across lines, star-led lines, db-qualified names and training/ dirs", () => {
+    const src = [
+      "export function trainIt(conn) {",
+      "  conn.run(`SELECT label",
+      "    FROM",
+      "      judgments`);",
+      "  conn.run(`SELECT",
+      "    * FROM decisions`);",
+      '  conn.run("SELECT * FROM wh.main.labels");',
+      "  /* FROM judge_uses in a block comment",
+      "     FROM judgments is fine too */",
+      "}",
+    ].join("\n");
+    expect(scanH5("packages/x/src/fit.ts", src).map((v) => v.line)).toEqual([3, 6, 7]);
+    expect(trainingReason("projects/p/training/fit.mjs", "")).toMatch(/training\//);
+  });
+
+  it("scans JS module and SQL sources as well as .ts", () => {
+    const rels = h5Files().map((f) => f.rel);
+    expect(rels.some((r) => r.endsWith(".sql"))).toBe(true);
+    expect(rels.every((r) => /\.(?:[cm]?[tj]s|sql)$/.test(r))).toBe(true);
   });
 });
 

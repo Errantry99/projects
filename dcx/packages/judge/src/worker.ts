@@ -311,6 +311,9 @@ export interface DrainStats {
   }>;
   errors: Array<{ payloadHash: string; code: string; message: string }>;
   drift: Array<{ pin: string; returned: string; questionHashes: string[] }>;
+  /** Asks (payload × question) left undispatched because the drain stopped early (budget
+   *  refusal, drift or maxRequests). They stay on the work list for the next drain. */
+  skipped: number;
 }
 
 export async function drain(wh: Warehouse, be: Backend, o: DrainOpts): Promise<DrainStats> {
@@ -327,6 +330,7 @@ export async function drain(wh: Warehouse, be: Backend, o: DrainOpts): Promise<D
     refused: [],
     errors: [],
     drift: [],
+    skipped: 0,
   };
   const prices = o.prices ?? (await loadPrices(wh));
   const price = priceFor(prices, be.name, pinV);
@@ -366,7 +370,10 @@ export async function drain(wh: Warehouse, be: Backend, o: DrainOpts): Promise<D
     }
     for (let i = 0; i < ok.length; i += caps.maxQuestions) {
       const chunk = ok.slice(i, i + caps.maxQuestions);
-      if (stop || (o.maxRequests !== undefined && dispatched >= o.maxRequests)) return;
+      if (stop || (o.maxRequests !== undefined && dispatched >= o.maxRequests)) {
+        stats.skipped += ok.length - i;
+        return;
+      }
       let reservation: number;
       try {
         reservation = budget.preflight(price ? tokenCost(tokens, 0, price) : 0);
@@ -467,6 +474,7 @@ export async function drain(wh: Warehouse, be: Backend, o: DrainOpts): Promise<D
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, o.concurrency ?? 4) }, worker));
+  for (const g of queue) stats.skipped += g.questions.length;
   await buf.flush();
   stats.judgments = buf.written;
   if (o.demoteOnDrift ?? true) {

@@ -545,6 +545,94 @@ describe("human, tool and retrieve steps", () => {
   });
 });
 
+describe("review fixes", () => {
+  it("a failed step replayed on resume does not settle the earlier llm row a second time", async () => {
+    let crash = true;
+    const wf: Workflow = {
+      name: "fail-then-go",
+      version: 1,
+      async run(ctx) {
+        await ctx.llm("draft", llmReq("a"));
+        try {
+          await ctx.tool("boom", { tool: "boom", args: {}, idempotent: true });
+        } catch {
+          // the workflow tolerates the failed tool
+        }
+        if (crash) throw new Error("process died");
+        return ctx.rule<boolean>("long", "is_long@1", { title: "abcd" });
+      },
+    };
+    const { s, deps } = await setup({ workflows: [wf] });
+    const k = new Kernel({
+      ...deps,
+      tools: {
+        boom: async () => {
+          throw new Error("tool down");
+        },
+      },
+    });
+    expect((await k.createRun("fail-then-go", 1, "active", null, { runId: "ff" })).status).toBe(
+      "failed",
+    );
+    crash = false;
+    expect((await k.resume("ff")).status).toBe("completed");
+    const rows = rowsFor(await s.journal.pendingOutbox(1000), "llm_calls", "ff");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ effect: { kind: "tool", error: "tool down" } });
+  });
+
+  it("a policy ref resolves to the judged backend's row, not a newer row for another backend", async () => {
+    const { s, deps } = await setup();
+    for (const [id, backend, ago] of [
+      ["pol-fixture", "fixture", "1 hour"],
+      ["pol-other", "other", "1 minute"],
+    ] as const) {
+      await s.warehouse.run(
+        `INSERT INTO thresholds (threshold_id, policy_id, question_hash, backend, model_v, calibrator_id, action, rule, status, valid_from)
+         VALUES (?, 'pol', ?, ?, ?, 'cal-1', 'include', ?, 'active', current_timestamp - INTERVAL '${ago}')`,
+        [id, qHash(Q), backend, MODEL, JSON.stringify({ label: null, min_p: 0.95 })],
+      );
+    }
+    const wf: Workflow = {
+      name: "pol",
+      version: 1,
+      run: async (ctx) =>
+        (await ctx.route("screen", {
+          ...routeSpec({ id: "p", title: "hi" }),
+          actions: { include: { thresholdRef: "pol" }, exclude: {} },
+        })) as unknown as Json,
+    };
+    const k = new Kernel({ ...deps, workflows: [wf] });
+    const r = await k.createRun("pol", 1, "active", null, { runId: "pol-1" });
+    expect(r.output).toMatchObject({ branch: "include", reason: "above_threshold" });
+  });
+
+  it("a human task resolved before the run is marked waiting still resumes the run", async () => {
+    const { s, deps } = await setup();
+    const j = s.journal;
+    const journal = Object.create(j) as typeof j;
+    // The HITL server resolves the task the moment it is enqueued (before the kernel parks).
+    journal.enqueueHuman = async (t) => {
+      await j.enqueueHuman(t);
+      await j.resolveHuman(
+        t.id,
+        { resolution: { answer: "include" }, resolver: "fast", at: 1 },
+        null,
+      );
+    };
+    const k = new Kernel({ ...deps, journal });
+    const r = await k.createRun(
+      "review",
+      1,
+      "active",
+      { id: "r8", title: "mid" },
+      { runId: "race" },
+    );
+    expect(r).toMatchObject({ status: "completed", output: { res: { answer: "include" } } });
+    expect((await j.getRun("race"))?.status).toBe("completed");
+  });
+});
+
 describe("otel mapping", () => {
   it("maps steps to spans with the pinned semconv, custom kinds and no content", async () => {
     const { s, k } = await setup();

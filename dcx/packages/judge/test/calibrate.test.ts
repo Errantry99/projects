@@ -126,6 +126,28 @@ describe("temperature and Platt", () => {
     expect(a).toBeCloseTo(0.5, 1);
     expect(b).toBeCloseTo(-0.4, 1);
   });
+
+  it("Platt stays finite and optimal with mass at p = 1.0 (Jev-shaped data)", () => {
+    const ps = [0.1, 0.2, 0.2, 0.5, 0.9, 1, 1, 1, 1, 0.3, 0.7];
+    const pairs: CalPair[] = ps.map((p, i) => ({ p, y: (i % 3 === 0 ? 1 : 0) as 0 | 1 }));
+    const { a, b } = fitPlatt(pairs);
+    expect(Math.abs(a)).toBeLessThan(10);
+    expect(Math.abs(b)).toBeLessThan(10);
+    const nPos = pairs.filter((x) => x.y).length;
+    const tp = (nPos + 1) / (nPos + 2);
+    const tn = 1 / (pairs.length - nPos + 2);
+    const loss = (x: number, y: number) =>
+      pairs.reduce((s, q) => {
+        const zq = logit(Math.min(1 - 1e-6, Math.max(1e-6, q.p))); // the fit's clamped logit
+        const pr = Math.min(1 - 1e-15, Math.max(1e-15, sigmoid(x * zq + y)));
+        const t = q.y ? tp : tn;
+        return s - t * Math.log(pr) - (1 - t) * Math.log(1 - pr);
+      }, 0);
+    let best = Number.POSITIVE_INFINITY;
+    for (let x = -3; x <= 3; x += 0.05)
+      for (let y = -3; y <= 3; y += 0.05) best = Math.min(best, loss(x, y));
+    expect(loss(a, b)).toBeLessThanOrEqual(best + 1e-9);
+  });
 });
 
 describe("ECE, noise floor and calibrator rows", () => {

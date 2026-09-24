@@ -143,7 +143,9 @@ export function fitTemperature(
 }
 
 /** Platt scaling sigmoid(a·logit(p) + b) by Newton's method on Platt's smoothed targets
- *  (y+ = (N+ + 1)/(N+ + 2), y- = 1/(N- + 2)), which keeps separable data finite. */
+ *  (y+ = (N+ + 1)/(N+ + 2), y- = 1/(N- + 2)), which keeps separable data finite. Each Newton
+ *  step is backtracked until the loss decreases (Lin, Lin & Weng 2007): with mass at p = 1.0
+ *  (Jev) the Hessian is nearly singular and a full step diverges. */
 export function fitPlatt(pairs: readonly CalPair[]): { a: number; b: number } {
   if (pairs.length === 0) return { a: 1, b: 0 };
   const nPos = pairs.filter((x) => x.y === 1).length;
@@ -152,14 +154,25 @@ export function fitPlatt(pairs: readonly CalPair[]): { a: number; b: number } {
   const tNeg = 1 / (nNeg + 2);
   const z = pairs.map((x) => logit(x.p));
   const t = pairs.map((x) => (x.y ? tPos : tNeg));
+  // Cross-entropy against the smoothed targets, in a numerically stable form.
+  const loss = (a: number, b: number) =>
+    z.reduce((s, zi, i) => {
+      const f = a * zi + b;
+      const ti = t[i] as number;
+      return (
+        s +
+        (f >= 0 ? (1 - ti) * f + Math.log1p(Math.exp(-f)) : -ti * f + Math.log1p(Math.exp(f)))
+      );
+    }, 0);
   let a = 1;
   let b = 0;
+  let cur = loss(a, b);
   for (let it = 0; it < 100; it++) {
     let ga = 0;
     let gb = 0;
-    let haa = 1e-9;
+    let haa = 1e-12;
     let hab = 0;
-    let hbb = 1e-9;
+    let hbb = 1e-12;
     z.forEach((zi, i) => {
       const p = sigmoid(a * zi + b);
       const r = p - (t[i] as number);
@@ -170,13 +183,24 @@ export function fitPlatt(pairs: readonly CalPair[]): { a: number; b: number } {
       hab += w * zi;
       hbb += w;
     });
+    if (Math.abs(ga) + Math.abs(gb) < 1e-10) break;
     const det = haa * hbb - hab * hab;
-    if (Math.abs(det) < 1e-12) break;
+    if (Math.abs(det) < 1e-24) break;
     const da = (hbb * ga - hab * gb) / det;
     const db = (haa * gb - hab * ga) / det;
-    a -= da;
-    b -= db;
-    if (Math.abs(da) + Math.abs(db) < 1e-10) break;
+    let step = 1;
+    let next = loss(a - da, b - db);
+    // Armijo condition on the Newton direction; halve the step until it holds.
+    while (next > cur - 1e-4 * step * (ga * da + gb * db) && step > 1e-10) {
+      step /= 2;
+      next = loss(a - step * da, b - step * db);
+    }
+    if (step <= 1e-10) break;
+    a -= step * da;
+    b -= step * db;
+    const moved = step * (Math.abs(da) + Math.abs(db));
+    cur = next;
+    if (moved < 1e-10) break;
   }
   return { a, b };
 }

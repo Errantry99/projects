@@ -119,7 +119,10 @@ export function decide(
   if (input.degraded) return { ...base, action: ACTION_HUMAN, reason: "model_drift" };
 
   const live = ts.filter((t) => t.question_hash === input.questionHash && valid(t, at, cal));
-  const applicable = live.filter((t) => t.rule.label === null || t.rule.label === a.answer);
+  // A rule without a label applies to every answer (the SQL view reads a missing label as NULL).
+  const applicable = live.filter(
+    (t) => (t.rule.label ?? null) === null || t.rule.label === a.answer,
+  );
   if (applicable.length === 0) return { ...base, action: ACTION_HUMAN, reason: "no_threshold" };
 
   // The strictest firing threshold wins; otherwise the best band outcome.

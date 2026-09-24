@@ -8,19 +8,29 @@
 //      (question_hash, backend, model_v), read from the warehouse (cached per process);
 //   4. maps the result to the kernel's `{decided, uses, costUsd}`.
 
-import type {
-  Backend,
-  CalibratorRow,
-  Decided,
-  Json,
-  Mode,
-  Option,
-  QuestionDef,
-  QuestionRef,
-  ThresholdRow,
-  Warehouse,
+import {
+  type Backend,
+  type CalibratorRow,
+  type Candidate,
+  candidateSetHash,
+  type Decided,
+  type Json,
+  type Mode,
+  type Option,
+  type PriceRow,
+  type QuestionDef,
+  type QuestionRef,
+  type ThresholdRow,
+  type Warehouse,
 } from "@dcx/core";
-import { askLive, decide, loadDecisionPolicy, modelVFor, readQuestions } from "@dcx/judge";
+import {
+  askLive,
+  decide,
+  loadDecisionPolicy,
+  loadPrices,
+  modelVFor,
+  readQuestions,
+} from "@dcx/judge";
 import type { JudgeService, JudgeUse, LiveJudgment } from "@dcx/kernel";
 
 export interface WarehouseJudgeOpts {
@@ -36,6 +46,7 @@ type Policy = { calibrator: CalibratorRow | null; thresholds: ThresholdRow[] };
 export class WarehouseJudge implements JudgeService {
   private defs: Map<string, QuestionDef> | null = null;
   private readonly policies = new Map<string, Promise<Policy>>();
+  private prices: Promise<PriceRow[]> | null = null;
   /** Backend requests made (cache misses asked), for reporting. */
   requests = 0;
 
@@ -58,6 +69,11 @@ export class WarehouseJudge implements JudgeService {
     });
   }
 
+  private loadPrices(): Promise<PriceRow[]> {
+    this.prices ??= loadPrices(this.wh);
+    return this.prices;
+  }
+
   private policy(questionHash: string, modelV: string): Promise<Policy> {
     const key = `${questionHash}|${modelV}`;
     let p = this.policies.get(key);
@@ -75,9 +91,15 @@ export class WarehouseJudge implements JudgeService {
     mode: Mode;
     recordId?: string;
   }): Promise<LiveJudgment> {
+    // Bound (runtime) options are part of what the model sees, so they are part of the cache
+    // key: candidate_set_hash over the bound list (a Candidate's id is included when present).
+    const candidateSetHashes: Record<string, string> = {};
     const defs = (await this.resolve(req.questions)).map((d) => {
       const bound = req.options?.[`${d.id}@${d.version}`];
-      return bound ? { ...d, options: bound } : d;
+      if (!bound) return d;
+      const cs = candidateSetHash(bound as unknown as Candidate[]);
+      if (cs) candidateSetHashes[d.questionHash] = cs;
+      return { ...d, options: bound };
     });
     const live = await askLive(
       this.wh,
@@ -90,11 +112,14 @@ export class WarehouseJudge implements JudgeService {
           recordId: req.recordId ?? null,
           state: req.state,
           questions: defs,
+          ...(Object.keys(candidateSetHashes).length ? { candidateSetHashes } : {}),
         },
       ],
       {
         pin: this.o.pin,
         writeUses: false,
+        // Price token-billed misses as the batch worker does (else live cost reads as 0).
+        prices: await this.loadPrices(),
         ...(this.o.timeoutMs === undefined ? {} : { timeoutMs: this.o.timeoutMs }),
         ...(this.o.maxRetries === undefined ? {} : { maxRetries: this.o.maxRetries }),
       },

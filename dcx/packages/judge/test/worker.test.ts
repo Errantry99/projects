@@ -112,6 +112,8 @@ describe("drain", () => {
     });
     expect(s.requests).toBe(1);
     expect(s.drift[0]).toMatchObject({ pin: PIN, returned: "jev-1.14.0" });
+    // The drain stops; the asks it did not send are reported, not dropped silently (15 asks).
+    expect(s.skipped).toBe(15 - (s.drift[0]?.questionHashes.length ?? 0));
     expect(
       await count(
         wh,
@@ -142,6 +144,9 @@ describe("drain", () => {
     // the cap by at most one call's estimate error, then dispatch stops.
     expect(s.requests).toBeLessThan(N);
     expect(s.refused.some((r) => r.reason === "budget")).toBe(true);
+    const refusedAsks = s.refused.reduce((n, r) => n + r.questionHashes.length, 0);
+    expect(s.skipped).toBeGreaterThan(0);
+    expect(s.judgments + refusedAsks + s.skipped).toBe(15);
     expect(s.costUsd).toBeLessThanOrEqual(1.5 + 0.4);
     await expect(drain(wh, oracle, { pin: PIN, budgetUsd: 1, prices: [] })).rejects.toThrow(
       /no price/,

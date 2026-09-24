@@ -127,6 +127,22 @@ export function bannedLicences(
   );
 }
 
+/** Licence strings that name no licence: a commercial licence (e.g. Elastic's) often ships as
+ *  `SEE LICENSE IN …`, which the banned-id match would otherwise let through. */
+export const UNKNOWN_LICENCE = /^\(none\)$|SEE LICEN[CS]E|UNLICENSED|^UNKNOWN$/i;
+
+/** Entries whose licence cannot be checked, not covered by the allowlist. */
+export function unknownLicences(
+  entries: readonly LicenceEntry[],
+  allow: readonly AllowlistEntry[] = [],
+): LicenceEntry[] {
+  return entries.filter(
+    (e) =>
+      UNKNOWN_LICENCE.test(e.licence.trim()) &&
+      !allow.some((a) => a.name === e.name && (a.version === "*" || a.version === e.version)),
+  );
+}
+
 /** Count of distinct packages per licence string, sorted by count then name. */
 export function licenceSummary(entries: readonly LicenceEntry[]): [string, number][] {
   const seen = new Map<string, Set<string>>();

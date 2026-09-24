@@ -3,14 +3,7 @@
 // `judge_uses`, the `decisions` / `decision_actions` views) and never raw `labels`, which can
 // hold LLM and `jev_disagreement` rows.
 
-import {
-  DCX_ROOT,
-  type FoundFile,
-  isCommentLine,
-  readText,
-  type Violation,
-  walk,
-} from "./files.js";
+import { DCX_ROOT, type FoundFile, readText, type Violation, walk } from "./files.js";
 
 /** Tables and views a training code path may not read. */
 export const H5_FORBIDDEN_SOURCES = [
@@ -25,13 +18,37 @@ export const H5_FORBIDDEN_SOURCES = [
 export const TRAINING_FN_NAME = /train|export.*training/i;
 
 const names = H5_FORBIDDEN_SOURCES.join("|");
-/** SQL read: `FROM x` / `JOIN x`, optionally schema-qualified or double-quoted. */
+/** SQL read: `FROM x` / `JOIN x`, optionally db- or schema-qualified or double-quoted. `\s+`
+ *  spans line breaks, so `FROM\n  judgments` in a template literal is caught. */
 const SQL_READ = new RegExp(
-  `\\b(?:from|join)\\s+(?:"?main"?\\.)?"?(${names})"?(?![\\w.])`,
-  "i",
+  `\\b(?:from|join)\\s+(?:"?[A-Za-z_]\\w*"?\\.){0,2}"?(${names})"?(?![\\w.])`,
+  "gi",
 );
 /** A bare quoted table name passed to a helper, e.g. `readTable("judgments")`. */
-const QUOTED_NAME = new RegExp(`\\(\\s*["'\`](${names})["'\`]`);
+const QUOTED_NAME = new RegExp(`\\(\\s*["'\`](${names})["'\`]`, "g");
+
+/** Blank out whole-line comments, keeping line numbers: `//` and `--` lines, and block comments
+ *  opened at a line start (to their `*\/`). A line that merely starts with `*` is only a comment
+ *  inside such a block, so `SELECT\n  * FROM judgments` in a template literal is still read. */
+export function stripComments(src: string): string {
+  let inBlock = false;
+  return src
+    .split("\n")
+    .map((line) => {
+      const t = line.trim();
+      if (inBlock) {
+        if (t.includes("*/")) inBlock = false;
+        return "";
+      }
+      if (t.startsWith("//") || t.startsWith("--")) return "";
+      if (t.startsWith("/*")) {
+        inBlock = !t.slice(2).includes("*/");
+        return "";
+      }
+      return line;
+    })
+    .join("\n");
+}
 
 /** Names of functions a TS source exports (`export function f`, `export const f =`, …). */
 export function exportedFunctionNames(src: string): string[] {
@@ -53,7 +70,7 @@ export function exportedFunctionNames(src: string): string[] {
 
 /** Why a file is a training code path, or `null` when it is not one. */
 export function trainingReason(rel: string, src: string): string | null {
-  if (/(^|\/)train\//.test(rel)) return "under a train/ directory";
+  if (/(^|\/)train(ing)?\//.test(rel)) return "under a train/ or training/ directory";
   const fn = exportedFunctionNames(src).find((n) => TRAINING_FN_NAME.test(n));
   if (fn) return `exports ${fn}()`;
   if (/--training\b/.test(src)) return "implements an `--training` option";
@@ -65,24 +82,28 @@ export function scanH5(rel: string, src: string): Violation[] {
   const why = trainingReason(rel, src);
   if (!why) return [];
   const out: Violation[] = [];
-  src.split("\n").forEach((text, i) => {
-    if (isCommentLine(text)) return;
-    const m = SQL_READ.exec(text) ?? QUOTED_NAME.exec(text);
-    if (m) {
+  const text = stripComments(src);
+  const lines = src.split("\n");
+  const seen = new Set<number>();
+  for (const re of [SQL_READ, QUOTED_NAME]) {
+    for (const m of text.matchAll(re)) {
+      const line = text.slice(0, m.index).split("\n").length;
+      if (seen.has(line)) continue;
+      seen.add(line);
       out.push({
         file: rel,
-        line: i + 1,
-        text,
+        line,
+        text: lines[line - 1] ?? "",
         reason: `training path (${why}) reads \`${m[1]}\`; read \`training_labels\` instead`,
       });
     }
-  });
-  return out;
+  }
+  return out.sort((a, b) => a.line - b.line);
 }
 
-/** Every `.ts` file under `dcx/packages` and `dcx/projects`. */
+/** Every TS/JS source and SQL file under `dcx/packages` and `dcx/projects`. */
 export function h5Files(root = DCX_ROOT): FoundFile[] {
-  const ts = (n: string) => n.endsWith(".ts") && !n.endsWith(".d.ts");
+  const ts = (n: string) => /\.(?:[cm]?[tj]s|sql)$/.test(n) && !/\.d\.[cm]?ts$/.test(n);
   return [...walk(`${root}/packages`, ts), ...walk(`${root}/projects`, ts)];
 }
 

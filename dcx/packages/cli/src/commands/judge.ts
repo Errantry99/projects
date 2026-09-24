@@ -84,6 +84,8 @@ export async function cmdJudge(ctx: Context, o: JudgeOpts): Promise<number> {
   }
   if (stats.refused.length)
     ctx.io.err(`  refused ${stats.refused.length} (state too large, caps or budget)`);
+  if (stats.skipped)
+    ctx.io.err(`  stopped early: ${stats.skipped} asks not sent (still on the work list)`);
   for (const e of stats.errors.slice(0, 5)) ctx.io.err(`  error ${e.code}: ${e.message}`);
   return stats.errors.length || stats.drift.length ? 1 : 0;
 }

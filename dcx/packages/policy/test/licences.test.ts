@@ -8,6 +8,7 @@ import {
   licenceSummary,
   lockfileLicences,
   readAllowlist,
+  unknownLicences,
 } from "../src/index.js";
 
 const fmt = (es: readonly LicenceEntry[]) =>
@@ -33,6 +34,21 @@ describe("licences: no AGPL, SSPL, Elastic/ELv2 or BUSL dependency", () => {
   it("no installed package.json has a banned licence outside the allowlist", () => {
     const bad = bannedLicences(installed, allow);
     expect(bad, fmt(bad)).toEqual([]);
+  });
+
+  it("every dependency names a checkable licence (no `SEE LICENSE IN`, UNLICENSED or none)", () => {
+    const bad = unknownLicences([...lock, ...installed], allow);
+    expect(bad, fmt(bad)).toEqual([]);
+    const e = (licence: string): LicenceEntry => ({
+      name: "x",
+      version: "1",
+      licence,
+      from: "installed",
+      path: "",
+    });
+    for (const l of ["SEE LICENSE IN LICENSE.txt", "UNLICENSED", "(none)"])
+      expect(unknownLicences([e(l)]), l).toHaveLength(1);
+    expect(unknownLicences([e("MIT")])).toEqual([]);
   });
 
   it("matches banned ids, reads every licence field shape, and honours the allowlist", () => {

@@ -49,6 +49,14 @@ const th = (over: Partial<ThresholdRow> = {}): ThresholdRow => ({
 });
 
 describe("decide", () => {
+  it("a rule stored without a label applies to every answer, as the SQL view reads it", () => {
+    const rule = { min_p: 0.85, on_error: "human" } as unknown as ThresholdRow["rule"];
+    expect(decide({ ...KEY, answer: choice("meets", 1) }, cal, th({ rule }))).toMatchObject({
+      action: "exclude",
+      reason: "above_threshold",
+    });
+  });
+
   it("calibrates then applies threshold, abstain band and floor", () => {
     const hi = decide({ ...KEY, answer: choice("fails", 1) }, cal, th());
     expect(hi).toMatchObject({

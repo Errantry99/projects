@@ -195,7 +195,14 @@ export class Kernel {
     } catch (e) {
       await ctx.drain().catch(() => undefined);
       if (e instanceof Suspended || ctx.suspendedAt !== null) {
-        if (!readOnly) await j.updateRun(run.run_id, { status: "waiting", lease_until: null });
+        if (!readOnly) {
+          await j.updateRun(run.run_id, { status: "waiting", lease_until: null });
+          // resolveHuman re-queues only runs already `waiting`: a task resolved between its
+          // enqueue and this update would strand the run, so re-check the parked step.
+          const at = ctx.suspendedAt;
+          const s = at === null ? null : await j.getStep(run.run_id, at);
+          if (s?.status === "completed") return this.resume(run.run_id);
+        }
         return { runId: run.run_id, status: "waiting" };
       }
       if (readOnly || e instanceof LeaseError) throw e;
@@ -407,8 +414,11 @@ export class Ctx implements RunCtx {
         this.replayed(prior);
         return prior.output as T;
       }
-      if (prior.status === "failed")
+      if (prior.status === "failed") {
+        // When it first ran, this failure settled the pending llm_calls row (see below).
+        this.pending = null;
         throw new StepFailed(prior.error ?? `step ${stepNo} failed`);
+      }
       if (prior.status === "suspended") {
         this.pending = null;
         this.suspendedAt = stepNo;
