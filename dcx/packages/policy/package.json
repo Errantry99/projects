@@ -1,0 +1,22 @@
+{
+  "name": "@dcx/policy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Policy tests: H5 training-data guard, model pinning, licences, no network in tests, cache-key shape",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "@dcx/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The dcx command-line interface",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "dcx": "node bin/dcx.js",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*",
+    "@dcx/store": "*",
+    "@dcx/judge": "*",
+    "@dcx/eval": "*",
+    "@dcx/kernel": "*",
+    "@dcx/importers": "*",
+    "commander": "^15.0.0"
+  },
+  "bin": {
+    "dcx": "./bin/dcx.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ]
+}

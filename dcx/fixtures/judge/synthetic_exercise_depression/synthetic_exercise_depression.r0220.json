@@ -1,0 +1,265 @@
+[
+  {
+    "keyId": "947e2c4344c2afc648a0fb684887c56ee8208250592b9afe7301d284c6c0ce32",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "a4b0f0ff047a73112ef66a390d13e0b6068aae085088a76f0b61df9c097501e3",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "a4b0f0ff047a73112ef66a390d13e0b6068aae085088a76f0b61df9c097501e3",
+      "qtype": "noul",
+      "answer": "true",
+      "probs": {
+        "true": 0.9,
+        "false": 0.1
+      },
+      "pAnswer": 0.9,
+      "backendConfidence": null
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.on_topic@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "222d88c7a877e722421d99c0a5c411d11dbb2a13bcbd686b249b6c0c44b0c53c",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "fdb552dad280157115d96e05740c36a1d719430778326d1d9fd4fb63ededfe86",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "fdb552dad280157115d96e05740c36a1d719430778326d1d9fd4fb63ededfe86",
+      "qtype": "choice",
+      "answer": "fails",
+      "probs": {
+        "meets": 0,
+        "fails": 1,
+        "not_stated": 0,
+        "other": 0
+      },
+      "pAnswer": 1,
+      "backendConfidence": 1
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.crit_1@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "32e3339efd6fb8d1946af34e7de44f10a275cfd1b4edc20565d525e40ae6f3ed",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "0c4c59c933df9bca857c63f5945b4c81548ea0d55c96ad7822de1d2cba53c3e6",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "0c4c59c933df9bca857c63f5945b4c81548ea0d55c96ad7822de1d2cba53c3e6",
+      "qtype": "choice",
+      "answer": "meets",
+      "probs": {
+        "meets": 0.91,
+        "fails": 0.01,
+        "not_stated": 0.07,
+        "other": 0.01
+      },
+      "pAnswer": 0.91,
+      "backendConfidence": 0.91
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.crit_2@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "c3f122d5a44701a85c3eaba0dcf409e83ce9308281026f9648381360efb32218",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "eaeb26d2f2ab6e700a3ddf3250c220df2e7e85dce58c0094eeaa667589a0b1e4",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "eaeb26d2f2ab6e700a3ddf3250c220df2e7e85dce58c0094eeaa667589a0b1e4",
+      "qtype": "choice",
+      "answer": "meets",
+      "probs": {
+        "meets": 0.96,
+        "fails": 0.01,
+        "not_stated": 0.02,
+        "other": 0.01
+      },
+      "pAnswer": 0.96,
+      "backendConfidence": 0.96
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.crit_3@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "01ac96505bff12e45fecdcadade3d0ecd2b408fe9a2cb9a3d18dd25c0320df17",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "eda65773e0e662b5705ee282f18c3b586d8c5a03f153abe83173596abc5a633b",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "eda65773e0e662b5705ee282f18c3b586d8c5a03f153abe83173596abc5a633b",
+      "qtype": "choice",
+      "answer": "meets",
+      "probs": {
+        "meets": 1,
+        "fails": 0,
+        "not_stated": 0,
+        "other": 0
+      },
+      "pAnswer": 1,
+      "backendConfidence": 1
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.crit_4@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "774fa72033ce8020e41bca0bd1177289795231ec3a0aa2e9bc6bdef1455c21a4",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "dc4e8df2aa5311876bcfd74dd113bee3d9d7e98a0799c763ec4756e68043a645",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "dc4e8df2aa5311876bcfd74dd113bee3d9d7e98a0799c763ec4756e68043a645",
+      "qtype": "choice",
+      "answer": "randomised_trial",
+      "probs": {
+        "randomised_trial": 1,
+        "observational_study": 0,
+        "systematic_review_or_meta_analysis": 0,
+        "narrative_review": 0,
+        "modelling_or_simulation": 0,
+        "qualitative_study": 0,
+        "case_report": 0,
+        "protocol_without_results": 0,
+        "commentary_or_editorial": 0,
+        "news_report_of_research": 0,
+        "other": 0,
+        "not_determinable": 0
+      },
+      "pAnswer": 1,
+      "backendConfidence": 1
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.study_type@1",
+    "synthetic": true
+  },
+  {
+    "keyId": "5ea971a60226222684e31a764daf380708c495661f5c5e530c902a0277e342b1",
+    "key": {
+      "payload_hash": "4a4560e88469e432a85784f4e0585fabae8edeefde9edf61ede6dcd67f0859cd",
+      "question_hash": "e7a575cba3e5704d944f4a36edab7c273d3fb1dbd2fbfb66496b53ec00834c62",
+      "candidate_set_hash": "",
+      "backend": "fixture",
+      "model_v": "jev-1.13.0",
+      "pack_mode": "single",
+      "sample_no": 0
+    },
+    "answer": {
+      "questionHash": "e7a575cba3e5704d944f4a36edab7c273d3fb1dbd2fbfb66496b53ec00834c62",
+      "qtype": "noul",
+      "answer": "false",
+      "probs": {
+        "true": 0.05,
+        "false": 0.95
+      },
+      "pAnswer": 0.05,
+      "backendConfidence": null
+    },
+    "modelVersion": "jev-1.13.0",
+    "usage": {
+      "inputTokens": 682,
+      "outputTokens": 0,
+      "costUsd": 0.000028644,
+      "basis": "token-price"
+    },
+    "requestId": "fx-4a4560e88469e432",
+    "recordedAt": "2026-09-24T00:00:00.000Z",
+    "recordId": "synthetic_exercise_depression.r0220",
+    "questionRef": "screen.injection@1",
+    "synthetic": true
+  }
+]

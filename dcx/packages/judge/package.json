@@ -1,0 +1,25 @@
+{
+  "name": "@dcx/judge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Question registry, lint, judge worker, ask/decide, calibrators and backends",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*",
+    "@dcx/store": "*",
+    "@typesafe-ai/sdk": "^0.6.0",
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@dcx-projects/evidence-screener",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Customer 1: SYNERGY screening workflows and questions",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*",
+    "@dcx/importers": "*",
+    "@dcx/judge": "*",
+    "@dcx/kernel": "*"
+  }
+}

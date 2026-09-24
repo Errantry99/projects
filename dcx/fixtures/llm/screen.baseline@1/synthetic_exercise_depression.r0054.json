@@ -1,0 +1,27 @@
+{
+  "recordId": "synthetic_exercise_depression.r0054",
+  "request": {
+    "template_id": "screen.baseline",
+    "template_v": 1,
+    "template_text_sha256": "56585176daeb3c0a357305566cebd0ed04de65a619f0426bc0ecb82dea4ef357",
+    "model": "frontier-llm@2026-09-01"
+  },
+  "response": {
+    "value": {
+      "answer": "include"
+    },
+    "text": "{\"answer\":\"include\"}",
+    "outputKind": "structured",
+    "normalisedAnswer": "include",
+    "modelReturned": "frontier-llm@2026-09-01",
+    "usage": {
+      "inputTokens": 1254,
+      "outputTokens": 153
+    },
+    "costUsd": 0.004038,
+    "costBasis": "token-price",
+    "latencyMs": 3690,
+    "retries": 0
+  },
+  "synthetic": true
+}

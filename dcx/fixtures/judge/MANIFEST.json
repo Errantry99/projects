@@ -1,0 +1,43 @@
+{
+  "synthetic": true,
+  "banner": "SYNTHETIC DATA",
+  "review": "synthetic_exercise_depression",
+  "backend": "fixture",
+  "model_v": "jev-1.13.0",
+  "records": 300,
+  "entries": 2100,
+  "questions": [
+    {
+      "ref": "screen.on_topic@1",
+      "question_hash": "a4b0f0ff047a73112ef66a390d13e0b6068aae085088a76f0b61df9c097501e3"
+    },
+    {
+      "ref": "screen.crit_1@1",
+      "question_hash": "fdb552dad280157115d96e05740c36a1d719430778326d1d9fd4fb63ededfe86"
+    },
+    {
+      "ref": "screen.crit_2@1",
+      "question_hash": "0c4c59c933df9bca857c63f5945b4c81548ea0d55c96ad7822de1d2cba53c3e6"
+    },
+    {
+      "ref": "screen.crit_3@1",
+      "question_hash": "eaeb26d2f2ab6e700a3ddf3250c220df2e7e85dce58c0094eeaa667589a0b1e4"
+    },
+    {
+      "ref": "screen.crit_4@1",
+      "question_hash": "eda65773e0e662b5705ee282f18c3b586d8c5a03f153abe83173596abc5a633b"
+    },
+    {
+      "ref": "screen.study_type@1",
+      "question_hash": "dc4e8df2aa5311876bcfd74dd113bee3d9d7e98a0799c763ec4756e68043a645"
+    },
+    {
+      "ref": "screen.injection@1",
+      "question_hash": "e7a575cba3e5704d944f4a36edab7c273d3fb1dbd2fbfb66496b53ec00834c62"
+    }
+  ],
+  "ambiguous_records": 44,
+  "llm_template": "screen.baseline@1",
+  "llm_model": "frontier-llm@2026-09-01",
+  "generator": "projects/evidence-screener/src/fixtures.ts"
+}

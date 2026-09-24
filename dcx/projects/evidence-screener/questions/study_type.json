@@ -1,0 +1,66 @@
+{
+  "id": "screen.study_type",
+  "version": 1,
+  "qtype": "choice",
+  "instructions": "Which best describes what the `untrusted_record` reports?",
+  "options": [
+    {
+      "label": "randomised_trial",
+      "description": "a trial in which the authors allocated participants to groups at random, with results"
+    },
+    {
+      "label": "observational_study",
+      "description": "original data from a cohort, case-control, cross-sectional, single-arm or non-randomised comparison study"
+    },
+    {
+      "label": "systematic_review_or_meta_analysis",
+      "description": "a structured search of the literature that pools or appraises studies by other authors"
+    },
+    {
+      "label": "narrative_review",
+      "description": "a summary of existing literature without a stated systematic search"
+    },
+    {
+      "label": "modelling_or_simulation",
+      "description": "results produced by a mathematical, economic or computer model rather than by observing participants"
+    },
+    {
+      "label": "qualitative_study",
+      "description": "interviews, focus groups or other non-numerical data on participants' experiences"
+    },
+    {
+      "label": "case_report",
+      "description": "a description of one patient or a handful of patients"
+    },
+    {
+      "label": "protocol_without_results",
+      "description": "the planned methods of a study that has not yet reported results"
+    },
+    {
+      "label": "commentary_or_editorial",
+      "description": "an opinion piece, letter or editorial that reports no new data"
+    },
+    {
+      "label": "news_report_of_research",
+      "description": "a journalist's report about research done by others"
+    },
+    {
+      "label": "other",
+      "description": "a kind of record none of the labels above describes"
+    },
+    {
+      "label": "not_determinable",
+      "description": "the record gives too little information to tell what it reports"
+    }
+  ],
+  "noMatchLabel": "other",
+  "optionsSource": "static",
+  "fields": ["untrusted_record.title", "untrusted_record.abstract"],
+  "maxStateTokens": 800,
+  "dataClass": "public",
+  "negationOf": null,
+  "labelCompatible": false,
+  "status": "active",
+  "owner": "evidence-screener",
+  "appliesTo": "abstract"
+}

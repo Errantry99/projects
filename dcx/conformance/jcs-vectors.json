@@ -1,0 +1,491 @@
+{
+  "description": "dcx conformance vectors: RFC 8785 JCS, sha256 (lowercase hex of UTF-8 bytes) and dcx content hashes. Any client must reproduce every entry. Regenerate with packages/core/scripts/write-vectors.ts.",
+  "version": 1,
+  "canonicalize": [
+    {
+      "name": "rfc8785-3.2.2-example",
+      "input": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}",
+      "expected": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "sha256": "2d5e01a318d0f0879ab568c4be289c8b1f64ef8921a53c6277d5e069978baacb"
+    },
+    {
+      "name": "rfc8785-3.2.3-sorting",
+      "input": "{\n  \"\\u20ac\": \"Euro Sign\",\n  \"\\r\": \"Carriage Return\",\n  \"\\ufb33\": \"Hebrew Letter Dalet With Dagesh\",\n  \"1\": \"One\",\n  \"\\ud83d\\ude00\": \"Emoji: Grinning Face\",\n  \"\\u0080\": \"Control\",\n  \"\\u00f6\": \"Latin Small Letter O With Diaeresis\"\n}",
+      "expected": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "sha256": "5e321556d22018a9656991a9e94f77ec175fa193e52a2429d312f8419ec8b08c"
+    },
+    {
+      "name": "utf16-order-not-codepoint-order",
+      "input": "{\"\\ue000\": 1, \"\\ud800\\udc00\": 2}",
+      "expected": "{\"𐀀\":2,\"\":1}",
+      "sha256": "9d4cdc71dda603c42f9b21d88d0c2ffc31a76cd1bd461d7359406cf169845f1e"
+    },
+    {
+      "name": "ascii-key-order",
+      "input": "{\"b\":1,\"a\":2,\"B\":3,\"aa\":4,\"\":5}",
+      "expected": "{\"\":5,\"B\":3,\"a\":2,\"aa\":4,\"b\":1}",
+      "sha256": "8377e487da74c9b86ca265a04aa7bd0e1b02eb36f14bb991692a4260a1c98c9f"
+    },
+    {
+      "name": "nested-and-whitespace",
+      "input": " { \"z\" : [ 3 , { \"y\" : null , \"x\" : [ ] } ] , \"a\" : { } } ",
+      "expected": "{\"a\":{},\"z\":[3,{\"x\":[],\"y\":null}]}",
+      "sha256": "8b44102837b87653289418e6379348d8d4264a00a6f6f633c47fd6de82779380"
+    },
+    {
+      "name": "array-order-kept",
+      "input": "[3, 1, 2, [\"b\", \"a\"]]",
+      "expected": "[3,1,2,[\"b\",\"a\"]]",
+      "sha256": "02e209760efb252dcc2451da40a8453bc5c1cd7ceef162e4f82cdb0329448eee"
+    },
+    {
+      "name": "numbers-misc",
+      "input": "[-0, 1.0, 1e21, 1e-7, 0.30000000000000004, 100, 1E2, -1.5e-10, 123456789012345680000]",
+      "expected": "[0,1,1e+21,1e-7,0.30000000000000004,100,100,-1.5e-10,123456789012345680000]",
+      "sha256": "1b5fff315a6a646f56b39a4bd776baf8ebabb1f8eb6a77e3988d8ecfdc8d7543"
+    },
+    {
+      "name": "string-escapes",
+      "input": "[\"\\u0000\\u0008\\u0009\\u000a\\u000c\\u000d\\u001f\", \"\\u007f\", \"\\u2028\\u2029\", \"\\/\", \"é\\u00e9\"]",
+      "expected": "[\"\\u0000\\b\\t\\n\\f\\r\\u001f\",\"\",\"  \",\"/\",\"éé\"]",
+      "sha256": "1e06ce1692b59dd0c4f84dc3531605c89411bafa19b0d9db05084e95e004c469"
+    },
+    {
+      "name": "scalars",
+      "input": "[true, false, null, \"\", 0]",
+      "expected": "[true,false,null,\"\",0]",
+      "sha256": "6b20884da6e8742d5e834cf9f0ff491c90d7140af4e7db5019a0a5dd1781e26f"
+    }
+  ],
+  "numbers": [
+    {
+      "ieee_hex": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "ieee_hex": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "ieee_hex": "0000000000000001",
+      "expected": "5e-324"
+    },
+    {
+      "ieee_hex": "8000000000000001",
+      "expected": "-5e-324"
+    },
+    {
+      "ieee_hex": "7fefffffffffffff",
+      "expected": "1.7976931348623157e+308"
+    },
+    {
+      "ieee_hex": "ffefffffffffffff",
+      "expected": "-1.7976931348623157e+308"
+    },
+    {
+      "ieee_hex": "4340000000000000",
+      "expected": "9007199254740992"
+    },
+    {
+      "ieee_hex": "c340000000000000",
+      "expected": "-9007199254740992"
+    },
+    {
+      "ieee_hex": "4430000000000000",
+      "expected": "295147905179352830000"
+    },
+    {
+      "ieee_hex": "44b52d02c7e14af5",
+      "expected": "9.999999999999997e+22"
+    },
+    {
+      "ieee_hex": "44b52d02c7e14af6",
+      "expected": "1e+23"
+    },
+    {
+      "ieee_hex": "44b52d02c7e14af7",
+      "expected": "1.0000000000000001e+23"
+    },
+    {
+      "ieee_hex": "444b1ae4d6e2ef4e",
+      "expected": "999999999999999700000"
+    },
+    {
+      "ieee_hex": "444b1ae4d6e2ef4f",
+      "expected": "999999999999999900000"
+    },
+    {
+      "ieee_hex": "444b1ae4d6e2ef50",
+      "expected": "1e+21"
+    },
+    {
+      "ieee_hex": "3eb0c6f7a0b5ed8c",
+      "expected": "9.999999999999997e-7"
+    },
+    {
+      "ieee_hex": "3eb0c6f7a0b5ed8d",
+      "expected": "0.000001"
+    },
+    {
+      "ieee_hex": "41b3de4355555553",
+      "expected": "333333333.3333332"
+    },
+    {
+      "ieee_hex": "41b3de4355555554",
+      "expected": "333333333.33333325"
+    },
+    {
+      "ieee_hex": "41b3de4355555555",
+      "expected": "333333333.3333333"
+    },
+    {
+      "ieee_hex": "41b3de4355555556",
+      "expected": "333333333.3333334"
+    },
+    {
+      "ieee_hex": "41b3de4355555557",
+      "expected": "333333333.33333343"
+    },
+    {
+      "ieee_hex": "becbf647612f3696",
+      "expected": "-0.0000033333333333333333"
+    },
+    {
+      "ieee_hex": "43143ff3c1cb0959",
+      "expected": "1424953923781206.2"
+    }
+  ],
+  "number_errors": [
+    {
+      "ieee_hex": "7ff8000000000000"
+    },
+    {
+      "ieee_hex": "7ff0000000000000"
+    },
+    {
+      "ieee_hex": "fff0000000000000"
+    }
+  ],
+  "text_errors": [
+    {
+      "name": "lone-high-surrogate",
+      "input": "\"\\ud800\""
+    },
+    {
+      "name": "lone-low-surrogate-key",
+      "input": "{\"\\udc00\": 1}"
+    }
+  ],
+  "project": [
+    {
+      "name": "nested-two-fields",
+      "state": {
+        "untrusted_record": {
+          "title": "Aspirin for β-blocker trials",
+          "abstract": "We screened 1,204…"
+        },
+        "meta": {
+          "source": "synergy",
+          "year": 2019
+        },
+        "note": null
+      },
+      "fields": [
+        "untrusted_record.title",
+        "untrusted_record.abstract"
+      ],
+      "expected": "{\"untrusted_record\":{\"abstract\":\"We screened 1,204…\",\"title\":\"Aspirin for β-blocker trials\"}}",
+      "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+      "fields_key": "[\"untrusted_record.abstract\",\"untrusted_record.title\"]"
+    },
+    {
+      "name": "order-and-dupes-irrelevant",
+      "state": {
+        "untrusted_record": {
+          "title": "Aspirin for β-blocker trials",
+          "abstract": "We screened 1,204…"
+        },
+        "meta": {
+          "source": "synergy",
+          "year": 2019
+        },
+        "note": null
+      },
+      "fields": [
+        "untrusted_record.abstract",
+        "untrusted_record.title",
+        "untrusted_record.title"
+      ],
+      "expected": "{\"untrusted_record\":{\"abstract\":\"We screened 1,204…\",\"title\":\"Aspirin for β-blocker trials\"}}",
+      "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+      "fields_key": "[\"untrusted_record.abstract\",\"untrusted_record.title\"]"
+    },
+    {
+      "name": "prefix-wins",
+      "state": {
+        "untrusted_record": {
+          "title": "Aspirin for β-blocker trials",
+          "abstract": "We screened 1,204…"
+        },
+        "meta": {
+          "source": "synergy",
+          "year": 2019
+        },
+        "note": null
+      },
+      "fields": [
+        "meta",
+        "meta.year"
+      ],
+      "expected": "{\"meta\":{\"source\":\"synergy\",\"year\":2019}}",
+      "payload_hash": "45dac7d3f32d196031f1fd5f799ccdf87acb2e99a855326cf3a252450ad335dc",
+      "fields_key": "[\"meta\",\"meta.year\"]"
+    },
+    {
+      "name": "missing-omitted-null-kept",
+      "state": {
+        "untrusted_record": {
+          "title": "Aspirin for β-blocker trials",
+          "abstract": "We screened 1,204…"
+        },
+        "meta": {
+          "source": "synergy",
+          "year": 2019
+        },
+        "note": null
+      },
+      "fields": [
+        "note",
+        "missing.path",
+        "meta.year.deeper"
+      ],
+      "expected": "{\"note\":null}",
+      "payload_hash": "0cd4101d3beb3cdd08a62cb8508f2a2a0942b290a02d6ba252d5fb481d3ce054",
+      "fields_key": "[\"meta.year.deeper\",\"missing.path\",\"note\"]"
+    },
+    {
+      "name": "dollar-prefix",
+      "state": {
+        "untrusted_record": {
+          "title": "Aspirin for β-blocker trials",
+          "abstract": "We screened 1,204…"
+        },
+        "meta": {
+          "source": "synergy",
+          "year": 2019
+        },
+        "note": null
+      },
+      "fields": [
+        "$.meta.source"
+      ],
+      "expected": "{\"meta\":{\"source\":\"synergy\"}}",
+      "payload_hash": "c4c6ee08e248d87fe7396e74dbeb19935b73bf5aa69ea6f60bc3441d48b7f261",
+      "fields_key": "[\"$.meta.source\"]"
+    }
+  ],
+  "question_hash": [
+    {
+      "def": {
+        "qtype": "noul",
+        "instructions": "Is `untrusted_record` about the review topic defined here?",
+        "options": [
+          {
+            "label": "true",
+            "description": "The title or abstract studies the topic."
+          },
+          {
+            "label": "false",
+            "description": "Neither the title nor the abstract studies the topic."
+          }
+        ],
+        "noMatchLabel": null,
+        "fields": [
+          "untrusted_record.title",
+          "untrusted_record.abstract"
+        ]
+      },
+      "expected": "af022a412d4d8906771737bfaf5de9fdf7aced6309c7d847815a096bd429e950"
+    },
+    {
+      "def": {
+        "qtype": "choice",
+        "instructions": "Does the study in `untrusted_record` meet criterion 1 (randomised design)?",
+        "options": [
+          {
+            "label": "meets",
+            "description": "The abstract states random allocation."
+          },
+          {
+            "label": "fails",
+            "description": "The abstract states a non-random design."
+          },
+          {
+            "label": "not_stated",
+            "description": "The abstract does not say how groups were formed."
+          },
+          {
+            "label": "other",
+            "description": "None of the above applies."
+          }
+        ],
+        "noMatchLabel": "other",
+        "fields": [
+          "untrusted_record.abstract",
+          "untrusted_record.title"
+        ]
+      },
+      "expected": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402"
+    }
+  ],
+  "candidate_set_hash": [
+    {
+      "candidates": [],
+      "expected": ""
+    },
+    {
+      "candidates": [
+        {
+          "id": "C0001",
+          "label": "Myocardial infarction",
+          "description": "Necrosis of heart muscle."
+        },
+        {
+          "id": "C0002",
+          "label": "Angina",
+          "description": {
+            "definition": "Chest pain",
+            "excludes": [
+              "MI"
+            ]
+          }
+        }
+      ],
+      "expected": "7497e694195759a696e6cb1a4fbf8c9ad538700b57d42021bad6cfb5b7504a63"
+    }
+  ],
+  "cache_key": [
+    {
+      "name": "defaults",
+      "parts": {
+        "payloadHash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "questionHash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "backend": "jev",
+        "modelV": "jev-1.13.0"
+      },
+      "columns": {
+        "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "question_hash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "candidate_set_hash": "",
+        "backend": "jev",
+        "model_v": "jev-1.13.0",
+        "pack_mode": "single",
+        "sample_no": 0
+      },
+      "id": "7971ff44626597881f8a959e5574d1e1e04011abf184bb44b7ef66380ba16eb9"
+    },
+    {
+      "name": "runtime-candidates",
+      "parts": {
+        "payloadHash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "questionHash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "candidateSetHash": "7497e694195759a696e6cb1a4fbf8c9ad538700b57d42021bad6cfb5b7504a63",
+        "backend": "jev",
+        "modelV": "jev-1.13.0"
+      },
+      "columns": {
+        "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "question_hash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "candidate_set_hash": "7497e694195759a696e6cb1a4fbf8c9ad538700b57d42021bad6cfb5b7504a63",
+        "backend": "jev",
+        "model_v": "jev-1.13.0",
+        "pack_mode": "single",
+        "sample_no": 0
+      },
+      "id": "9a4d27e2fdcfc487857929219aefbfaa2303f11633d9b2c6b51d3e02d76bee49"
+    },
+    {
+      "name": "repeat-sample",
+      "parts": {
+        "payloadHash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "questionHash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "backend": "jev",
+        "modelV": "jev-1.13.0",
+        "sampleNo": 2
+      },
+      "columns": {
+        "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "question_hash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "candidate_set_hash": "",
+        "backend": "jev",
+        "model_v": "jev-1.13.0",
+        "pack_mode": "single",
+        "sample_no": 2
+      },
+      "id": "f6e4fcfec1b539ce2c198311287d6907da5e47edbe14e1057af9846379377f3d"
+    },
+    {
+      "name": "packed-llm",
+      "parts": {
+        "payloadHash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "questionHash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "backend": "llm",
+        "modelV": "claude-x+3f2a1b4c5d6e",
+        "packMode": "pack:8"
+      },
+      "columns": {
+        "payload_hash": "06b6eafa8c688406f4a894772cf1debe893a538c2c95c4e5999b981c35097c94",
+        "question_hash": "d57b5848578fe5532e622f645cade5ff6b3a00795e1bee996fbd520623289402",
+        "candidate_set_hash": "",
+        "backend": "llm",
+        "model_v": "claude-x+3f2a1b4c5d6e",
+        "pack_mode": "pack:8",
+        "sample_no": 0
+      },
+      "id": "5caf33d940d20970f67f78ce1f5b381a16c8fb0d224ba0f98a49aa0fe56af870"
+    }
+  ],
+  "decision_point_id": [
+    {
+      "workflow": "screen-baseline@1",
+      "step": "screen",
+      "loop": "",
+      "expected": "4617b394580b8f012e548de54156240876209ecc81affef6ac8ec952d66ed790"
+    },
+    {
+      "workflow": "inbox@3",
+      "step": "triage",
+      "loop": "msg",
+      "expected": "84332ab70a0a2cf74df1e03d05d4dabd2211df3ff499e21a7ed0706580ad6fc1"
+    }
+  ],
+  "tool_set_hash": [
+    {
+      "schemas": [
+        {
+          "name": "b",
+          "type": "object"
+        },
+        {
+          "type": "object",
+          "name": "a"
+        }
+      ],
+      "expected": "b105ebcd6c5eceee6bdfb77fd79d24fcdb5bdc95e0d2dbbbf1ac8644c2d49a68"
+    }
+  ],
+  "hash_unit": [
+    {
+      "input": "audit:rec-1",
+      "expected": 0.7985204111216455
+    },
+    {
+      "input": "audit:rec-2",
+      "expected": 0.4343299174095694
+    },
+    {
+      "input": "",
+      "expected": 0.8894159948913372
+    }
+  ]
+}

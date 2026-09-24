@@ -1,0 +1,22 @@
+{
+  "name": "@dcx/eval",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Metrics (ECE, Brier, Wilson, kappa), threshold sweep and calibration reports",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b tsconfig.build.json"
+  },
+  "dependencies": {
+    "@dcx/core": "*"
+  }
+}

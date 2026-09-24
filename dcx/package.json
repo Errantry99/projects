@@ -1,0 +1,32 @@
+{
+  "name": "dcx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed-decision compiler: a journaled kernel, judge cache and discovery loop over SQLite + DuckDB",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "packages/*",
+    "projects/*"
+  ],
+  "scripts": {
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "build": "tsc -b packages/*/tsconfig.build.json projects/*/tsconfig.build.json",
+    "demo": "bash scripts/hello-world.sh",
+    "dcx": "node packages/cli/bin/dcx.js"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
