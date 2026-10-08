@@ -1,25 +1,26 @@
 """Render "The Derwent Runs Dark": an ominous sea shanty sung over a photo.
 
-Vocals: espeak-ng/MBROLA speech, re-pitched and time-stretched onto a melody
-with the WORLD vocoder. Accompaniment (drone, drum, sea, wind) is synthesized.
+Vocals: Kokoro neural TTS, sung by re-pitching and time-stretching each line
+onto the melody with the WORLD vocoder: vowels are held, consonants keep their
+spoken length and lead into the beat, and pitch glides with delayed vibrato. Accompaniment (drone, drum, sea, wind) is synthesized.
 Video: slow push-in on the photo, storm grade, lightning, burned-in lyrics.
 
-usage: python3 make_shanty.py <photo.jpg> <out.mp4>
+usage: KOKORO_DIR=<dir with kokoro-v1.0.onnx, voices-v1.0.bin> \
+       python3 make_shanty.py <photo.jpg> <out.mp4>
 """
 
 import os
 import subprocess
 import sys
-import tempfile
 import wave
 
 import numpy as np
 import pyworld as pw
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 from scipy.signal import butter, fftconvolve, resample_poly, sosfilt
 
 SR = 44100
-VSR = 16000  # MBROLA output rate
+VSR = 24000  # Kokoro output rate
 BPM = 74
 BEAT = 60.0 / BPM
 INTRO_BEATS = 8
@@ -65,77 +66,162 @@ def midi_hz(m):
 
 # ---------------------------------------------------------------- vocals
 
+FP = 5.0  # WORLD frame period, ms
+FS = FP / 1000
+_tts = None
 _cache = {}
 
 
-def speak(word, voice):
+def tts():
+    global _tts
+    if _tts is None:
+        from kokoro_onnx import Kokoro
+        d = os.environ.get("KOKORO_DIR", "models")
+        _tts = Kokoro(os.path.join(d, "kokoro-v1.0.onnx"), os.path.join(d, "voices-v1.0.bin"))
+    return _tts
+
+
+def runs(mask):
+    """[(start, end)] of the True runs in a boolean array."""
+    d = np.diff(np.concatenate([[0], mask.astype(int), [0]]))
+    return list(zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]))
+
+
+def analyse(word, voice):
+    """Speak one word and split it into WORLD frames plus a vowel-nucleus mask."""
     key = (word, voice)
-    if key not in _cache:
-        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
-            subprocess.run(["espeak-ng", "-v", voice, "-s", "95", "-w", f.name, word.strip(",.")],
-                           check=True, capture_output=True)
-            with wave.open(f.name) as w:
-                assert w.getframerate() == VSR
-                x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float64) / 32768
-        nz = np.nonzero(np.abs(x) > 0.01)[0]
-        x = x[max(nz[0] - 80, 0): nz[-1] + 80] if len(nz) else x
-        f0, t = pw.harvest(x, VSR, f0_floor=60, frame_period=5.0)
-        sp = pw.cheaptrick(x, f0, t, VSR)
-        ap = pw.d4c(x, f0, t, VSR)
-        _cache[key] = (f0, sp, ap)
+    if key in _cache:
+        return _cache[key]
+    lang = "en-gb" if voice.startswith("b") else "en-us"
+    x, sr = tts().create(word.strip(",."), voice=voice, speed=0.85, lang=lang)
+    assert sr == VSR
+    x = x.astype(np.float64)
+    env = np.convolve(np.abs(x), np.ones(240) / 240, mode="same")
+    keep = np.nonzero(env > env.max() * 0.02)[0]
+    x = x[max(keep[0] - 120, 0): keep[-1] + 240]
+    f0, t = pw.harvest(x, VSR, f0_floor=60, f0_ceil=400, frame_period=FP)
+    sp = pw.cheaptrick(x, f0, t, VSR)
+    ap = pw.d4c(x, f0, t, VSR)
+
+    voiced = f0 > 0
+    for a, b in runs(~voiced):  # close short unvoiced holes (pitch-tracker dropouts)
+        if a > 0 and b < len(voiced) and b - a < 7:
+            voiced[a:b] = True
+    for a, b in runs(voiced):   # drop tiny voiced specks
+        if b - a < 4:
+            voiced[a:b] = False
+    if not voiced.any():
+        voiced[:] = True
+
+    # vowel nuclei: loud, voiced frames. These are what get held; consonants
+    # and glides keep their spoken length.
+    energy = np.log(sp.sum(1) + 1e-12)
+    energy = np.convolve(energy, np.ones(5) / 5, mode="same")
+    loud = voiced & (energy > energy[voiced].max() - 1.6)
+    nuclei = [(a, b) for a, b in runs(loud) if b - a >= 3] or [max(runs(voiced), key=lambda r: r[1] - r[0])]
+    _cache[key] = (sp, ap, voiced, nuclei)
     return _cache[key]
 
 
-def sing(word, notes, dur, voice, transpose=0, cents=0.0, growl=0.0):
-    """Return a mono VSR signal of `word` sung on `notes` lasting ~dur seconds."""
-    f0, sp, ap = speak(word, voice)
-    n_src = len(f0)
-    voiced = f0 > 0
-    if not voiced.any():
-        voiced[:] = True
-    n_out = max(int(dur * 0.92 / 0.005), 8)
-    n_unv = (~voiced).sum()
-    k = max((n_out - n_unv) / max(voiced.sum(), 1), 0.35)
-    w = np.where(voiced, k, 1.0)
-    cum = np.concatenate([[0], np.cumsum(w)])
-    n_out = int(cum[-1])
-    pos = np.interp(np.arange(n_out) + 0.5, cum, np.arange(n_src + 1)) - 0.5
-    pos = np.clip(pos, 0, n_src - 1)
-    i0 = np.floor(pos).astype(int)
-    i1 = np.minimum(i0 + 1, n_src - 1)
-    fr = (pos - i0)[:, None]
-    sp_o = np.exp(np.log(sp[i0] + 1e-12) * (1 - fr) + np.log(sp[i1] + 1e-12) * fr)
-    ap_o = ap[i0] * (1 - fr) + ap[i1] * fr
-    v_o = voiced[np.rint(pos).astype(int)]
+def plan_word(word, notes, voice):
+    """Frame weights for stretching, plus the note each frame belongs to."""
+    sp, ap, voiced, nuclei = analyse(word, voice)
+    n = len(voiced)
+    # assign notes to nuclei: one each if counts match, else spread evenly
+    if len(nuclei) > len(notes):  # merge extra nuclei into the nearest one
+        nuclei = [(nuclei[0][0], nuclei[-1][1])] if len(notes) == 1 else nuclei[: len(notes) - 1] + [(nuclei[len(notes) - 1][0], nuclei[-1][1])]
+    stretch = np.zeros(n, bool)
+    for a, b in nuclei:
+        stretch[a:b] = True
+    note_of = np.zeros(n, int)
+    if len(nuclei) == len(notes):
+        for i, (a, _) in enumerate(nuclei):
+            note_of[a:] = i
+    else:  # fewer vowels than notes: a melisma across the held vowel(s)
+        idx = np.nonzero(stretch)[0]
+        note_of[idx] = np.minimum((np.arange(len(idx)) * len(notes)) // len(idx), len(notes) - 1)
+        note_of = np.maximum.accumulate(note_of)
+    onset = nuclei[0][0]  # frames of consonant before the first vowel
+    return sp, ap, voiced, stretch, note_of, onset
 
-    # target pitch over the voiced span, with glide, vibrato and a little drift
-    vi = np.nonzero(v_o)[0]
-    lf = np.zeros(n_out)
-    if len(vi):
-        a, b = vi[0], vi[-1] + 1
-        span = np.arange(n_out)
-        frac = np.clip((span - a) / max(b - a, 1), 0, 0.999)
-        idx = (frac * len(notes)).astype(int)
-        lf = np.log2([midi_hz(notes[i] + transpose) for i in idx]) + cents / 1200
-        lf = np.convolve(np.pad(lf, 6, mode="edge"), np.ones(13) / 13, mode="valid")
-        t = np.arange(n_out) * 0.005
-        vib = 0.35 / 12 * np.sin(2 * np.pi * 5.2 * t + RNG.uniform(0, 6)) * np.clip((t - 0.25) / 0.4, 0, 1)
-        scoop = -0.6 / 12 * np.exp(-t / 0.06)  # sailors slide up into notes
-        lf = lf + vib + scoop
-    f0_o = np.where(v_o, 2 ** lf, 0.0)
-    if growl:
-        jitter = 1 + growl * RNG.standard_normal(n_out)
-        f0_o = f0_o * np.clip(jitter, 0.9, 1.1)
-        ap_o = np.clip(ap_o + growl * 2, 0, 1)
-    y = pw.synthesize(f0_o, np.ascontiguousarray(sp_o), np.ascontiguousarray(ap_o), VSR, 5.0)
-    fade = min(len(y) // 4, int(0.04 * VSR))
-    if fade:
-        y[-fade:] *= np.linspace(1, 0, fade)
-    return y
+
+def sing_line(line, voice, transpose, cents, seed, tempo_jitter=0.0):
+    """Sing a whole line as one continuous phrase. Returns (signal at VSR, offset s)."""
+    rng = np.random.default_rng(seed)
+    plans = [plan_word(w, notes, voice) for w, notes, _ in line]
+    beats = np.cumsum([0] + [b for _, _, b in line])
+    vowel_t = beats[:-1] * BEAT + rng.normal(0, tempo_jitter, len(line))
+    vowel_t[0] = max(vowel_t[0], 0)
+    lead = plans[0][5] * FS  # first consonant starts before the line's first beat
+    end_t = beats[-1] * BEAT - 0.25 * BEAT  # breath before the next line
+
+    sps, aps, vs, f0s = [], [], [], []
+    cur = 0  # frames written so far; frame 0 is at time -lead
+    for i, ((word, notes, b), (sp, ap, voiced, stretch, note_of, onset)) in enumerate(zip(line, plans)):
+        start_f = int(round((vowel_t[i] + lead) / FS)) - onset
+        if start_f > cur:  # rest: silent frames
+            gap = start_f - cur
+            sps.append(np.full((gap, sp.shape[1]), 1e-10)); aps.append(np.ones((gap, ap.shape[1])))
+            vs.append(np.zeros(gap, bool)); f0s.append(np.full(gap, np.nan))
+            cur = start_f
+        if i + 1 < len(line):
+            stop = vowel_t[i + 1] + lead - plans[i + 1][5] * FS
+        else:
+            stop = end_t + lead
+        n_out = max(int(round(stop / FS)) - cur, 6)
+        n_src = len(voiced)
+        n_fixed = (~stretch).sum()
+        k = max((n_out - n_fixed) / max(stretch.sum(), 1), 0.5)
+        w = np.where(stretch, k, 1.0 if k >= 1 else k)
+        cum = np.concatenate([[0], np.cumsum(w)])
+        n_out = int(cum[-1])
+        pos = np.clip(np.interp(np.arange(n_out) + 0.5, cum, np.arange(n_src + 1)) - 0.5, 0, n_src - 1)
+        i0 = np.floor(pos).astype(int)
+        i1 = np.minimum(i0 + 1, n_src - 1)
+        fr = (pos - i0)[:, None]
+        sp_o = np.exp(np.log(sp[i0] + 1e-12) * (1 - fr) + np.log(sp[i1] + 1e-12) * fr)
+        ap_o = ap[i0] * (1 - fr) + ap[i1] * fr
+        near = np.rint(pos).astype(int)
+        v_o = voiced[near]
+        # a held vowel swells slightly then relaxes; the end of the word tapers
+        held = stretch[near]
+        tt = np.arange(n_out) * FS
+        dyn = 1 + 0.25 * np.sin(np.pi * np.clip(tt / max(n_out * FS, 1e-3), 0, 1)) * held
+        tail = np.clip((n_out - np.arange(n_out)) / 16, 0, 1) ** 2
+        sp_o *= (dyn * np.maximum(tail, 0.02))[:, None] ** 2
+        ap_o[held] = ap_o[held] * 0.75  # a sung vowel is a touch purer than a spoken one
+        sps.append(sp_o); aps.append(ap_o); vs.append(v_o)
+        f0s.append(np.array([midi_hz(notes[j] + transpose) for j in note_of[near]]))
+        cur += n_out
+
+    sp = np.concatenate(sps); ap = np.concatenate(aps); v = np.concatenate(vs)
+    target = np.log2(np.concatenate(f0s)) + cents / 1200
+    rest = np.isnan(target)  # in a rest, aim at the next note so the glide lands cleanly
+    nxt = np.where(~rest, np.arange(len(target)), len(target) - 1)
+    nxt = np.minimum.accumulate(nxt[::-1])[::-1]
+    target[rest] = target[nxt[rest]]
+    n = len(target)
+    t = np.arange(n) * FS
+    # glide between notes (~70 ms), like a voice rather than a keyboard
+    pad = 7
+    lf = np.convolve(np.pad(target, pad, mode="edge"), np.hanning(2 * pad + 1) / np.hanning(2 * pad + 1).sum(), "valid")
+    # vibrato that blooms on held notes, with continuous phase across the line
+    change = np.concatenate([[True], np.abs(np.diff(target)) > 1e-6])
+    since = t - t[np.maximum.accumulate(np.where(change, np.arange(n), 0))]
+    rate = 5.1 + 0.3 * np.sin(2 * np.pi * 0.23 * t + rng.uniform(0, 6))
+    phase = 2 * np.pi * np.cumsum(rate) * FS + rng.uniform(0, 6)
+    depth = 0.28 / 12 * np.clip((since - 0.3) / 0.45, 0, 1)
+    # slow wander of a few cents, the way a real voice never sits dead on pitch
+    drift = np.convolve(rng.standard_normal(n + 80), np.hanning(81) / np.hanning(81).sum(), "valid")[:n]
+    drift = drift / (np.std(drift) + 1e-9) * 7 / 1200
+    lf = lf + depth * np.sin(phase) + drift
+    f0 = np.where(v, 2 ** lf, 0.0)
+    y = pw.synthesize(f0, np.ascontiguousarray(sp), np.ascontiguousarray(ap), VSR, FP)
+    return y, -lead
 
 
 def to_sr(y):
-    return resample_poly(y, 441, 160)
+    return resample_poly(y, 147, 80)  # 24 kHz -> 44.1 kHz
 
 
 def place(buf, y, t):
@@ -164,29 +250,26 @@ def build_timeline():
     return lines, caps, beat + 10
 
 
-CREW = [  # (voice, transpose, cents, timing offset s, gain, growl)
-    ("mb-us2", 0, 0, 0.0, 1.0, 0.0),
-    ("mb-us3", 0, 9, 0.025, 0.75, 0.01),
-    ("mb-en1", 0, -8, -0.02, 0.7, 0.0),
-    ("mb-us2", -12, 4, 0.035, 0.55, 0.015),   # the deep one
-    ("mb-us3", -5, -6, 0.015, 0.35, 0.0),     # a fourth below, hollow harmony
+CREW = [  # (voice, transpose, cents, timing offset s, gain)
+    ("bm_george", 0, 0, 0.0, 1.0),
+    ("bm_lewis", 0, 6, 0.018, 0.7),
+    ("am_michael", 0, -5, -0.012, 0.6),
+    ("am_onyx", -12, 3, 0.022, 0.5),   # the deep one
+    ("bm_daniel", -5, -4, 0.01, 0.35),  # a fourth below, hollow harmony
 ]
 
 
 def render_vocals(lines, n):
     left, right = np.zeros(n), np.zeros(n)
-    for start, mode, line in lines:
-        singers = CREW[:1] + [CREW[3]] if mode == "solo" else CREW
-        pans = np.linspace(-0.6, 0.6, len(singers))
-        for (voice, tr, cents, dt, gain, growl), pan in zip(singers, pans):
+    for li, (start, mode, line) in enumerate(lines):
+        singers = [CREW[0], CREW[3]] if mode == "solo" else CREW
+        pans = [0.0, 0.3] if mode == "solo" else [0.0, -0.45, 0.45, -0.15, 0.25]
+        for si, ((voice, tr, cents, dt, gain), pan) in enumerate(zip(singers, pans)):
             if mode == "solo" and tr == -12:
-                gain = 0.3  # a low ghost under the solo
-            t = start + dt
+                gain = 0.28  # a low ghost under the solo
+            y, off = sing_line(line, voice, tr, cents, seed=li * 10 + si, tempo_jitter=0.012 if si else 0.0)
             mono = np.zeros(n)
-            for word, notes, beats in line:
-                y = to_sr(sing(word, notes, beats * BEAT, voice, tr, cents, growl))
-                place(mono, y * gain, t - 0.04)
-                t += beats * BEAT
+            place(mono, to_sr(y) * gain, start + dt + off)
             left += mono * np.sqrt((1 - pan) / 2)
             right += mono * np.sqrt((1 + pan) / 2)
         print(f"  sang: {' '.join(w for w, _, _ in line)}", flush=True)
