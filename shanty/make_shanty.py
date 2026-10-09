@@ -1,9 +1,9 @@
 """Render "The Derwent Runs Dark": a rollicking sea shanty with grim lyrics, over a photo.
 
-Vocals: a shantyman calls each verse and the crew chants the chorus, voiced by
-Kokoro neural TTS with natural speech rhythm, slowed and deepened with Praat's
-PSOLA; a synthesized wordless choir hums the melody beneath. Accompaniment
-(stomp, claps, squeezebox, fiddle, sea) is synthesized.
+Vocals: sung like a shanty band: a shantyman takes the verses with the crew
+answering, and everyone sings the chorus in harmony. Each word is voiced by
+Kokoro neural TTS and set on its beat and note with Praat's PSOLA.
+Band (stomp, claps, squeezebox, fiddle, sea) is synthesized.
 Video: the photo dissolves into a pencil sketch in which the boat sails through
 drawn water and comes about twice, then bloops back to the photo, so the first
 and last frames match and it loops.
@@ -31,8 +31,8 @@ RNG = np.random.default_rng(7)
 # MIDI notes, D major: a jolly tune for a grim tale
 A2, B2, Cs3, D3, E3, Fs3, G3, A3, B3, Cs4, D4 = 45, 47, 49, 50, 52, 54, 55, 57, 59, 61, 62
 
-# Each line: list of (word, notes, beats). The words are chanted; the notes
-# are the tune the choir, fiddle and squeezebox play beneath them.
+# Each line: list of (word, notes, beats): the word, the note(s) it is sung on
+# (several notes split it), and how many beats it lasts.
 VERSE_1 = [
     [("Oh,", [A2], 1), ("the", [D3], .5), ("Derwent", [D3, Fs3], 1), ("runs", [A3], 1), ("dark", [A3], 1.5),
      ("and", [G3], .5), ("the", [Fs3], .5), ("mountain", [E3, Fs3], 1), ("looms", [E3], 1), ("grey,", [D3], 2)],
@@ -68,13 +68,15 @@ def midi_hz(m):
 
 # ---------------------------------------------------------------- vocals
 #
-# Stretching speech onto a melody always ends up sounding like a robot, so
-# the voices here are never forced to sing. The shantyman and crew *chant*
-# the words with their natural speech rhythm and intonation (lowered and
-# slowed with Praat's PSOLA, which keeps the voice quality intact), while a
-# wordless humming choir carries the tune underneath.
+# Sung the way shanty bands do it: a shantyman takes each verse line and the
+# crew roars back a response; on the chorus everyone sings, locked to the
+# stomp, in harmony (tune, a third above, a third below, and a bass on the
+# chord root). Every word is voiced by Kokoro neural TTS, then set on its
+# beat and its note with Praat's PSOLA, which keeps the voice natural; a
+# little of the spoken inflection is kept so it sounds sung by a person.
 
 _tts = None
+_words = {}
 
 
 def tts():
@@ -90,24 +92,59 @@ def line_text(line):
     return " ".join(w for w, _, _ in line)
 
 
-def chant(text, voice, median_hz, slot, formant=0.95, pitch_range=1.0):
-    """Call out `text` with natural rhythm, fitted to at most `slot` seconds."""
+def speak_word(word, voice):
+    """A trimmed Praat Sound of one spoken word, plus its pitch track (cached)."""
     from parselmouth import Sound
+    key = (word, voice)
+    if key not in _words:
+        lang = "en-gb" if voice.startswith("b") else "en-us"
+        x, sr = tts().create(word.strip(",.!"), voice=voice, speed=1.0, lang=lang)
+        assert sr == VSR
+        snd = Sound(x.astype(np.float64), sr)
+        env = np.convolve(np.abs(snd.values[0]), np.ones(240) / 240, "same")
+        on = np.nonzero(env > env.max() * 0.03)[0]
+        snd = snd.extract_part(on[0] / sr, min((on[-1] + 240) / sr, snd.duration))
+        pitch = snd.to_pitch(0.01, 60, 400)
+        _words[key] = (snd, pitch.xs(), pitch.selected_array["frequency"])
+    return _words[key]
+
+
+def sing_word(word, notes, dur, voice, keep=0.3, cents=0.0):
+    """Sing one word on `notes` across ~`dur` s. Returns (signal, seconds before its vowel)."""
     from parselmouth.praat import call
-    lang = "en-gb" if voice.startswith("b") else "en-us"
-    x, sr = tts().create(text, voice=voice, speed=1.0, lang=lang)
-    # change the speaking rate (not a time-stretch) so the line fills most of its slot
-    speed = float(np.clip(len(x) / sr / (slot * 0.88), 0.72, 1.35))
-    if abs(speed - 1) > 0.03:
-        x, sr = tts().create(text, voice=voice, speed=speed, lang=lang)
-    assert sr == VSR
-    snd = Sound(x.astype(np.float64), sr)
-    stretch = float(np.clip(slot / snd.duration, 0.92, 1.1))
-    y = call(snd, "Change gender", 60, 400, formant, median_hz, pitch_range, stretch).values[0]
-    env = np.convolve(np.abs(y), np.ones(240) / 240, mode="same")
-    keep = np.nonzero(env > env.max() * 0.02)[0]
-    y = y[max(keep[0] - 240, 0): keep[-1] + 480]
-    return y / (np.sqrt(np.mean(y ** 2)) + 1e-9) * 0.1
+    snd, ts, f = speak_word(word, voice)
+    length = snd.duration
+    voiced = f > 0
+    if not voiced.any():
+        return snd.values[0].copy(), 0.0
+    tv, fv = ts[voiced], f[voiced]
+    t_on, t_off = tv[0], tv[-1]
+    factor = float(np.clip(dur * 0.92 / length, 0.7, 1.7))
+    manip = call(snd, "To Manipulation", 0.01, 60, 400)
+    tier = call(manip, "Extract pitch tier")
+    call(tier, "Remove points between", 0, length)
+    frac = np.clip((tv - t_on) / max(t_off - t_on, 1e-3), 0, 0.999)
+    target = (np.log2([midi_hz(notes[int(q * len(notes))]) for q in frac])
+              + keep * np.log2(fv / np.median(fv)) + cents / 1200)  # keep a bit of speech
+    target = np.convolve(np.pad(target, 3, mode="edge"), np.ones(7) / 7, "valid")  # glide between notes
+    target -= 0.5 / 12 * np.exp(-(tv - t_on) / 0.04)  # a small scoop into the note
+    for ti, lf in zip(tv, target):
+        call(tier, "Add point", float(ti), float(2 ** lf))
+    call([tier, manip], "Replace pitch tier")
+    dtier = call("Create DurationTier", "d", 0, length)
+    call(dtier, "Add point", 0, factor)
+    call([manip, dtier], "Replace duration tier")
+    y = call(manip, "Get resynthesis (overlap-add)").values[0]
+    return y / (np.sqrt(np.mean(y ** 2)) + 1e-9) * 0.1, t_on * factor
+
+
+D_MAJOR = sorted(p + 12 * o for o in range(1, 7) for p in (2, 4, 6, 7, 9, 11, 13))  # MIDI 14-85
+
+
+def diatonic(note, steps):
+    """Move `note` by scale steps in D major (2 = a third)."""
+    i = int(np.argmin([abs(p - note) for p in D_MAJOR]))
+    return D_MAJOR[i + steps]
 
 
 def to_sr(y):
@@ -140,98 +177,73 @@ def build_timeline():
     return lines, caps, beat + 12
 
 
-CREW = [  # (voice, median Hz, formant, pitch range, timing offset s, gain, pan)
-    ("bm_george", 118, 0.95, 1.1, 0.0, 1.0, 0.0),
-    ("am_onyx", 92, 0.98, 1.0, 0.03, 0.75, -0.5),
-    ("bm_lewis", 104, 0.96, 1.0, -0.02, 0.75, 0.45),
-    ("am_michael", 125, 0.97, 1.0, 0.045, 0.6, -0.25),
-    ("bm_daniel", 132, 0.98, 1.0, 0.015, 0.55, 0.3),
-    ("am_adam", 110, 0.96, 1.0, -0.035, 0.5, 0.65),
+# The crew's parts: (voice, part, timing offset s, gain, pan)
+CREW = [
+    ("bm_george", "tune", 0.0, 1.0, 0.0),        # the shantyman
+    ("bm_daniel", "tune", 0.014, 0.65, -0.35),
+    ("am_michael", "above", -0.009, 0.42, 0.4),
+    ("bm_lewis", "below", 0.011, 0.55, 0.3),
+    ("am_onyx", "bass", 0.006, 0.7, -0.15),
+]
+# the crew's answers to each verse line, sung in the gap before the next one
+RESPONSES = [
+    [("Way,", [A3], 1), ("hey!", [Fs3], 1.5)],
+    [("Heave", [A3], 1), ("ho!", [D3], 2)],
 ]
 
 
+def part_notes(part, notes, bar_root):
+    if part == "tune":
+        return notes
+    if part == "above":
+        return [diatonic(m, 2) for m in notes]
+    if part == "below":
+        return [diatonic(m, -2) for m in notes]
+    return [bar_root]  # bass: the chord's root, low
+
+
+def sing_line(line, start, singers, roots, n, left, right, rng):
+    t = start
+    for word, notes, beats in line:
+        d = beats * BEAT
+        root = roots[min(int((t / BEAT + 1e-6) // 4), len(roots) - 1)]
+        b = t / BEAT
+        accent = 1.0 if abs(b - 2 * round(b / 2)) < 1e-6 else 0.85  # lean on the stomps
+        for voice, part, dt, gain, pan in singers:
+            y, lead = sing_word(word, part_notes(part, notes, root), d, voice,
+                                keep=0.3 if part == "tune" else 0.15, cents=rng.normal(0, 4))
+            mono = to_sr(y) * gain * accent
+            at = t - lead + dt + rng.normal(0, 0.006)
+            i = int(max(at, 0) * SR)
+            j = min(i + len(mono), n)
+            left[i:j] += mono[: j - i] * np.sqrt((1 - pan) / 2)
+            right[i:j] += mono[: j - i] * np.sqrt((1 + pan) / 2)
+        t += d
+
+
 def render_voices(lines, n):
-    """The shantyman calls the verses; the whole crew chants the chorus."""
+    """Call and response on the verses; the whole crew in harmony on the chorus."""
     left, right = np.zeros(n), np.zeros(n)
-    for start, mode, line in lines:
-        slot = sum(b for _, _, b in line) * BEAT * 0.95
-        singers = CREW[:1] if mode == "solo" else CREW
-        for voice, hz, formant, prange, dt, gain, pan in singers:
-            if mode == "solo":
-                prange = 1.45  # the shantyman hams it up
-            y = to_sr(chant(line_text(line), voice, hz, slot, formant, prange))
-            mono = np.zeros(n)
-            place(mono, y * gain, start + dt)
-            left += mono * np.sqrt((1 - pan) / 2)
-            right += mono * np.sqrt((1 + pan) / 2)
-        print(f"  chanted: {line_text(line)}", flush=True)
+    rng = np.random.default_rng(3)
+    bars = chord_bars(lines, int(n / SR / BEAT // 4) + 2)
+    roots = []
+    for b in bars:
+        r = CHORDS[b][0]
+        while r > 47:
+            r -= 12
+        roots.append(r)
+    for k, (start, mode, line) in enumerate(lines):
+        singers = CREW if mode == "crew" else CREW[:1]
+        sing_line(line, start, singers, roots, n, left, right, rng)
+        if mode == "solo":
+            end_beat = start / BEAT + sum(b for _, _, b in line)
+            next_start = lines[k + 1][0] / BEAT if k + 1 < len(lines) else end_beat + 8
+            resp = RESPONSES[k % 2]
+            at = np.ceil(end_beat + 0.5)
+            if at + sum(b for _, _, b in resp) <= next_start:
+                sing_line(resp, at * BEAT, CREW[1:], roots, n, left, right, rng)
+        print(f"  sang: {line_text(line)}", flush=True)
     return left, right
-
-
-# vowel formants (Hz, bandwidth Hz, gain) for the humming choir
-VOWELS = {
-    "oo": [(320, 80, 1.0), (800, 100, 0.35), (2400, 160, 0.06)],
-    "ah": [(650, 90, 1.0), (1080, 110, 0.6), (2550, 170, 0.15)],
-}
-
-
-def hum(lines, n):
-    """A wordless choir carrying the melody: 'oo' under verses, 'ah' under choruses."""
-    ctl = 200  # control rate, Hz
-    m = n * ctl // SR + 1
-    note = np.full(m, np.nan)
-    vowel = np.zeros(m)  # 0 = oo, 1 = ah
-    gate = np.zeros(m)
-    for start, mode, line in lines:
-        t = start
-        for _, notes, beats in line:
-            d = beats * BEAT
-            for j, nt in enumerate(notes):
-                a = int((t + j * d / len(notes)) * ctl)
-                b = int((t + (j + 1) * d / len(notes)) * ctl)
-                note[a:b] = nt
-            t += d
-        a, b = int(start * ctl), int(t * ctl)
-        gate[a:b] = 1
-        vowel[a:b] = mode == "crew"
-    # hold the last note through rests, glide ~120 ms between notes
-    idx = np.where(~np.isnan(note), np.arange(m), 0)
-    note = note[np.maximum.accumulate(idx)]
-    note[np.isnan(note)] = D3
-    k = np.hanning(49) / np.hanning(49).sum()
-    note = np.convolve(np.pad(note, 24, mode="edge"), k, "valid")
-    k2 = np.hanning(161) / np.hanning(161).sum()  # soft swells in and out of phrases
-    gate = np.convolve(np.pad(gate, 80, mode="edge"), k2, "valid")
-    vowel = np.convolve(np.pad(vowel, 80, mode="edge"), k2, "valid")
-    tc = np.arange(m) / ctl
-    ts = np.arange(n) / SR
-
-    out_l, out_r = np.zeros(n), np.zeros(n)
-    voices = [(0, -9), (0, 7), (0, -3), (0, 12), (-12, -5), (-12, 6), (7 - 12, 4), (-12, 0)]
-    for vi, (octave, cents) in enumerate(voices):
-        rng = np.random.default_rng(100 + vi)
-        drift = np.convolve(rng.standard_normal(m + 200), np.hanning(201) / np.hanning(201).sum(), "valid")[:m]
-        drift = drift / (drift.std() + 1e-9) * 6
-        vib = 0.18 * np.sin(2 * np.pi * (4.8 + 0.6 * rng.random()) * tc + rng.uniform(0, 6))
-        f0c = 440 * 2 ** ((note + octave - 69 + (cents + drift) / 100 + vib / 12) / 12)
-        f0 = np.interp(ts, tc, f0c)
-        phase = 2 * np.pi * np.cumsum(f0) / SR
-        sig = np.zeros(n)
-        for h in range(1, 40):  # additive voice: each harmonic weighted by the vowel's formants
-            fh = f0c * h
-            amp = np.zeros(m)
-            for name, w in (("oo", 1 - vowel), ("ah", vowel)):
-                for fc, bw, g in VOWELS[name]:
-                    amp += w * g / (1 + ((fh - fc) / bw) ** 2)
-            amp *= h ** -0.7 * (fh < 5000)
-            sig += np.interp(ts, tc, amp) * np.sin(h * phase)
-        breath = bp(rng.standard_normal(n), 400, 2600) * 0.04
-        sig = (sig + breath) * np.interp(ts, tc, gate)
-        pan = (vi / (len(voices) - 1)) * 1.4 - 0.7
-        out_l += sig * np.sqrt((1 - pan) / 2)
-        out_r += sig * np.sqrt((1 + pan) / 2)
-    norm = 0.3 / (np.abs(out_l).max() + 1e-9)
-    return out_l * norm, out_r * norm
 
 
 # ---------------------------------------------------------------- band
@@ -783,11 +795,7 @@ def make_audio():
     print(f"song length {total_s:.1f}s")
 
     vl, vr = render_voices(lines, n)
-    vl, vr = reverb(vl, 1.8, 0.2, seed=1), reverb(vr, 1.8, 0.2, seed=2)
-    print("humming")
-    hl, hr = hum(lines, n)
-    vl += reverb(hl, 2.5, 0.35, seed=6) * 0.7
-    vr += reverb(hr, 2.5, 0.35, seed=7) * 0.7
+    vl, vr = reverb(vl, 1.4, 0.18, seed=1), reverb(vr, 1.4, 0.18, seed=2)  # a small room, a pub
 
     last_line_end = (lines[-1][0] + sum(b for _, _, b in lines[-1][2]) * BEAT)
     end_beat = int(np.ceil(last_line_end / BEAT / 4)) * 4 + 4
