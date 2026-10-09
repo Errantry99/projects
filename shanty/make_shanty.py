@@ -1,9 +1,9 @@
-"""Render "The Derwent Runs Dark": an ominous sea shanty over a photo.
+"""Render "The Derwent Runs Dark": a rollicking sea shanty with grim lyrics, over a photo.
 
 Vocals: a shantyman calls each verse and the crew chants the chorus, voiced by
 Kokoro neural TTS with natural speech rhythm, slowed and deepened with Praat's
 PSOLA; a synthesized wordless choir hums the melody beneath. Accompaniment
-(drone, drum, sea, wind, thunder) is synthesized.
+(stomp, claps, squeezebox, fiddle, sea) is synthesized.
 Video: the photo dissolves into a moving pencil sketch and back again, so the
 first and last frames match and it loops.
 
@@ -22,39 +22,39 @@ from scipy.signal import butter, fftconvolve, resample_poly, sosfilt
 
 SR = 44100
 VSR = 24000  # Kokoro output rate
-BPM = 74
+BPM = 112
 BEAT = 60.0 / BPM
-INTRO_BEATS = 8
+INTRO_BEATS = 16
 RNG = np.random.default_rng(7)
 
-# MIDI notes, D minor (C#3=49 is the harmonic-minor leading tone)
-A2, C3, Cs3, D3, E3, F3, G3, A3, Bb3, C4, D4 = 45, 48, 49, 50, 52, 53, 55, 57, 58, 60, 62
+# MIDI notes, D major: a jolly tune for a grim tale
+A2, B2, Cs3, D3, E3, Fs3, G3, A3, B3, Cs4, D4 = 45, 47, 49, 50, 52, 54, 55, 57, 59, 61, 62
 
-# Each line: list of (word, notes, beats). One espeak word per entry; several
-# notes split the word's voiced part evenly.
+# Each line: list of (word, notes, beats). The words are chanted; the notes
+# are the tune the choir, fiddle and squeezebox play beneath them.
 VERSE_1 = [
-    [("Oh,", [A2], 1), ("the", [D3], .5), ("Derwent", [D3, F3], 1), ("runs", [A3], 1), ("dark", [A3], 1.5),
-     ("and", [G3], .5), ("the", [F3], .5), ("mountain", [E3, F3], 1), ("looms", [E3], 1), ("grey,", [D3], 2)],
-    [("Five", [A2], 1), ("souls", [D3], 1), ("on", [D3], .5), ("the", [F3], .5), ("timber", [A3, Bb3], 1),
+    [("Oh,", [A2], 1), ("the", [D3], .5), ("Derwent", [D3, Fs3], 1), ("runs", [A3], 1), ("dark", [A3], 1.5),
+     ("and", [G3], .5), ("the", [Fs3], .5), ("mountain", [E3, Fs3], 1), ("looms", [E3], 1), ("grey,", [D3], 2)],
+    [("Five", [A2], 1), ("souls", [D3], 1), ("on", [D3], .5), ("the", [Fs3], .5), ("timber", [A3, B3], 1),
      ("that", [A3], .5), ("sailed", [G3], 1), ("away", [E3, Cs3], 2.5)],
 ]
 VERSE_2 = [
-    [("She", [A2], 1), ("was", [D3], .5), ("built", [D3], 1), ("of", [F3], .5), ("Huon", [A3, A3], 1), ("pine", [A3], 1.5),
-     ("and", [G3], .5), ("she", [F3], .5), ("gleams", [E3], 1), ("like", [F3], 1), ("gold,", [D3], 2)],
-    [("But", [A2], 1), ("the", [D3], .5), ("wind", [D3], 1), ("has", [F3], .5), ("a", [A3], .5), ("hunger", [Bb3, A3], 1),
+    [("She", [A2], 1), ("was", [D3], .5), ("built", [D3], 1), ("of", [Fs3], .5), ("Huon", [A3, A3], 1), ("pine", [A3], 1.5),
+     ("and", [G3], .5), ("she", [Fs3], .5), ("gleams", [E3], 1), ("like", [Fs3], 1), ("gold,", [D3], 2)],
+    [("But", [A2], 1), ("the", [D3], .5), ("wind", [D3], 1), ("has", [Fs3], .5), ("a", [A3], .5), ("hunger", [B3, A3], 1),
      ("and", [G3], .5), ("the", [G3], .5), ("water", [E3, E3], 1), ("is", [Cs3], .5), ("cold.", [D3], 2.5)],
 ]
 VERSE_3 = [
-    [("So", [A2], 1), ("wave", [D3], 1.5), ("to", [F3], .5), ("the", [A3], .5), ("harbour,", [A3, A3, G3], 1.5),
-     ("lads,", [F3], .5), ("wave", [E3], 1), ("while", [F3], 1), ("you", [E3], .5), ("may,", [D3], 2)],
-    [("For", [A2], 1), ("the", [D3], .5), ("mountain", [D3, F3], 1), ("is", [A3], .5), ("watching,", [Bb3, A3], 1.5),
-     ("and", [G3], .5), ("it", [F3], .5), ("won't", [E3], 1), ("look", [E3], .5), ("away.", [Cs3, A2], 3)],
+    [("So", [A2], 1), ("wave", [D3], 1.5), ("to", [Fs3], .5), ("the", [A3], .5), ("harbour,", [A3, A3, G3], 1.5),
+     ("lads,", [Fs3], .5), ("wave", [E3], 1), ("while", [Fs3], 1), ("you", [E3], .5), ("may,", [D3], 2)],
+    [("For", [A2], 1), ("the", [D3], .5), ("mountain", [D3, Fs3], 1), ("is", [A3], .5), ("watching,", [B3, A3], 1.5),
+     ("and", [G3], .5), ("it", [Fs3], .5), ("won't", [E3], 1), ("look", [E3], .5), ("away.", [Cs3, A2], 3)],
 ]
 CHORUS = [
-    [("Haul", [A3], 1.5), ("away,", [G3, F3], 1.5), ("haul", [G3], 1.5), ("away,", [F3, E3], 1.5),
-     ("to", [D3], .5), ("the", [D3], .5), ("deep", [Bb3], 1.5), ("we", [A3], .5), ("go,", [D3], 2)],
-    [("For", [A2], .5), ("the", [D3], .5), ("sea", [F3], 1), ("keeps", [G3], 1), ("her", [A3], .5), ("own,", [Bb3], 1.5),
-     ("and", [A3], .5), ("the", [G3], .5), ("dead", [F3], 1), ("men", [E3], 1), ("know.", [D3], 3)],
+    [("Haul", [A3], 1.5), ("away,", [G3, Fs3], 1.5), ("haul", [G3], 1.5), ("away,", [Fs3, E3], 1.5),
+     ("to", [D3], .5), ("the", [D3], .5), ("deep", [B3], 1.5), ("we", [A3], .5), ("go,", [D3], 2)],
+    [("For", [A2], .5), ("the", [D3], .5), ("sea", [Fs3], 1), ("keeps", [G3], 1), ("her", [A3], .5), ("own,", [B3], 1.5),
+     ("and", [A3], .5), ("the", [G3], .5), ("dead", [Fs3], 1), ("men", [E3], 1), ("know.", [D3], 3)],
 ]
 SONG = [("solo", VERSE_1), ("crew", CHORUS), ("solo", VERSE_2), ("crew", CHORUS),
         ("solo", VERSE_3), ("crew", CHORUS)]
@@ -89,15 +89,19 @@ def line_text(line):
     return " ".join(w for w, _, _ in line)
 
 
-def chant(text, voice, median_hz, slot, formant=0.9, pitch_range=1.0, speed=0.74):
-    """Speak `text` slowly and darkly, fitted to at most `slot` seconds."""
+def chant(text, voice, median_hz, slot, formant=0.95, pitch_range=1.0):
+    """Call out `text` with natural rhythm, fitted to at most `slot` seconds."""
     from parselmouth import Sound
     from parselmouth.praat import call
     lang = "en-gb" if voice.startswith("b") else "en-us"
-    x, sr = tts().create(text, voice=voice, speed=speed, lang=lang)
+    x, sr = tts().create(text, voice=voice, speed=1.0, lang=lang)
+    # change the speaking rate (not a time-stretch) so the line fills most of its slot
+    speed = float(np.clip(len(x) / sr / (slot * 0.88), 0.72, 1.35))
+    if abs(speed - 1) > 0.03:
+        x, sr = tts().create(text, voice=voice, speed=speed, lang=lang)
     assert sr == VSR
     snd = Sound(x.astype(np.float64), sr)
-    stretch = float(np.clip(slot / snd.duration, 0.9, 1.18))
+    stretch = float(np.clip(slot / snd.duration, 0.92, 1.1))
     y = call(snd, "Change gender", 60, 400, formant, median_hz, pitch_range, stretch).values[0]
     env = np.convolve(np.abs(y), np.ones(240) / 240, mode="same")
     keep = np.nonzero(env > env.max() * 0.02)[0]
@@ -130,18 +134,18 @@ def build_timeline():
             length = sum(b for _, _, b in line)
             caps.append((start - 0.3, (beat + length) * BEAT + 0.4,
                          " ".join(w for w, _, _ in line), mode))
-            beat += length + LINE_GAP
-        beat += 2  # bar of breath between sections
-    return lines, caps, beat + 10
+            beat += int(np.ceil((length + LINE_GAP) / 4)) * 4  # every line starts on a downbeat
+        beat += 4  # a bar for the band between sections
+    return lines, caps, beat + 12
 
 
 CREW = [  # (voice, median Hz, formant, pitch range, timing offset s, gain, pan)
-    ("bm_george", 92, 0.88, 0.7, 0.0, 1.0, 0.0),
-    ("am_onyx", 74, 0.95, 0.6, 0.045, 0.8, -0.5),
-    ("bm_lewis", 82, 0.92, 0.6, -0.03, 0.75, 0.45),
-    ("am_michael", 98, 0.9, 0.6, 0.07, 0.6, -0.25),
-    ("bm_daniel", 110, 0.93, 0.6, 0.02, 0.55, 0.3),
-    ("am_adam", 87, 0.9, 0.6, -0.05, 0.5, 0.65),
+    ("bm_george", 118, 0.95, 1.1, 0.0, 1.0, 0.0),
+    ("am_onyx", 92, 0.98, 1.0, 0.03, 0.75, -0.5),
+    ("bm_lewis", 104, 0.96, 1.0, -0.02, 0.75, 0.45),
+    ("am_michael", 125, 0.97, 1.0, 0.045, 0.6, -0.25),
+    ("bm_daniel", 132, 0.98, 1.0, 0.015, 0.55, 0.3),
+    ("am_adam", 110, 0.96, 1.0, -0.035, 0.5, 0.65),
 ]
 
 
@@ -149,11 +153,11 @@ def render_voices(lines, n):
     """The shantyman calls the verses; the whole crew chants the chorus."""
     left, right = np.zeros(n), np.zeros(n)
     for start, mode, line in lines:
-        slot = sum(b for _, _, b in line) * BEAT * 0.92
+        slot = sum(b for _, _, b in line) * BEAT * 0.95
         singers = CREW[:1] if mode == "solo" else CREW
         for voice, hz, formant, prange, dt, gain, pan in singers:
             if mode == "solo":
-                prange = 1.0
+                prange = 1.45  # the shantyman hams it up
             y = to_sr(chant(line_text(line), voice, hz, slot, formant, prange))
             mono = np.zeros(n)
             place(mono, y * gain, start + dt)
@@ -239,38 +243,106 @@ def bp(x, lo, hi, order=2):
     return sosfilt(butter(order, [lo, hi], "band", fs=SR, output="sos"), x)
 
 
-def drone(n, total_s):
-    t = np.arange(n) / SR
-    out = np.zeros(n)
-    for m, g in [(D3 - 24, 1.0), (A2 - 12, 0.6), (D3 - 12, 0.5), (F3 - 12, 0.12)]:
-        f = midi_hz(m)
-        for det in (-0.15, 0.0, 0.17):  # detuned saws, cello-ish section
-            ph = (f + det) * t + 0.002 * np.sin(2 * np.pi * 0.11 * t)
-            out += g * (2 * (ph % 1) - 1) / 3
-    out = lp(out, 420, 4)
-    swell = 0.6 + 0.4 * np.sin(2 * np.pi * t / (BEAT * 8) - np.pi / 2)
-    env = np.clip(t / 6, 0, 1) * np.clip((total_s - t) / 5, 0, 1)
-    return out * swell * env * 0.22
+CHORDS = {"D": (50, [50, 54, 57]), "G": (43, [55, 59, 62]), "A": (45, [57, 61, 64]), "Bm": (47, [59, 62, 66])}
 
 
-def drum(n, start_beat, end_beat):
-    """A deep stomp on beats 1 and 3, with a muffled half-beat pickup now and then."""
-    out = np.zeros(n)
-    hit_len = int(0.7 * SR)
-    th = np.arange(hit_len) / SR
-    body = np.sin(2 * np.pi * (48 * th + 40 * (1 - np.exp(-th / 0.04)) * 0.04)) * np.exp(-th / 0.22)
-    click = lp(RNG.standard_normal(hit_len), 900) * np.exp(-th / 0.015) * 0.5
-    hit = body + click
+def chord_bars(lines, n_bars):
+    """Pick a chord for each bar from the melody notes sounding in it."""
+    weight = np.zeros((n_bars, 12))
+    for start, _, line in lines:
+        beat = start / BEAT
+        for _, notes, beats in line:
+            for nt in notes:
+                bar = int((beat + 1e-6) // 4)
+                if bar < n_bars:
+                    weight[bar, nt % 12] += beats / len(notes)
+                beat += beats / len(notes)
+    bars, last = [], "D"
+    for wb in weight:
+        if wb.sum() == 0:
+            bars.append(last)
+            continue
+        score = {name: sum(wb[m % 12] for m in tones) + (0.3 if name == "D" else 0)
+                 for name, (_, tones) in CHORDS.items()}
+        last = max(score, key=score.get)
+        bars.append(last)
+    return bars
+
+
+def reed(freqs, dur):
+    """A squeezebox stab: detuned reed pairs, a little tremolo, a quick decay."""
+    m = int(dur * SR)
+    t = np.arange(m) / SR
+    y = np.zeros(m)
+    for f in freqs:
+        for det in (0.997, 1.003):
+            ph = f * det * t
+            y += (2 * (ph % 1) - 1) * 0.6 + np.sign(np.sin(2 * np.pi * ph)) * 0.4
+    env = np.clip(t / 0.01, 0, 1) * np.exp(-t / (dur * 0.6))
+    return lp(y * env * (1 + 0.15 * np.sin(2 * np.pi * 6 * t)), 2600, 2) / len(freqs)
+
+
+def band(n, lines, start_beat, end_beat):
+    """Stomp on 1 and 3, claps on 2 and 4, an oom-pah squeezebox following the tune."""
+    stomp_l, clap_l, box = np.zeros(n), np.zeros(n), np.zeros(n)
+    hl = int(0.4 * SR)
+    th = np.arange(hl) / SR
+    stomp = np.sin(2 * np.pi * (60 * th + 50 * 0.03 * (1 - np.exp(-th / 0.03)))) * np.exp(-th / 0.12)
+    stomp += lp(RNG.standard_normal(hl), 1200) * np.exp(-th / 0.02) * 0.6  # boots on deck
+    bars = chord_bars(lines, int(end_beat // 4) + 2)
     b = start_beat
-    hits = []
     while b < end_beat:
-        hits.append((b, 1.0 if (b - start_beat) % 4 == 0 else 0.7))
-        if (b - start_beat) % 8 == 6:
-            hits.append((b + 1.5, 0.45))
-        b += 2
-    for beat, g in hits:
-        place(out, hit * g, beat * BEAT)
-    return out * 0.55, [h[0] * BEAT for h in hits if h[1] == 1.0]
+        beat_in_bar = int(b) % 4
+        bar = bars[int(b // 4)]
+        root, tones = CHORDS[bar]
+        t0 = b * BEAT
+        if beat_in_bar in (0, 2):
+            place(stomp_l, stomp * (1.0 if beat_in_bar == 0 else 0.8), t0)
+            bass = root if beat_in_bar == 0 else root + 7  # oom: root, then the fifth
+            place(box, reed([midi_hz(bass - 12), midi_hz(bass)], BEAT * 0.8) * 0.9, t0)
+        else:
+            for k in range(4):  # a few crew members clapping, never quite together
+                clap = bp(RNG.standard_normal(int(0.12 * SR)), 900, 3500) * np.exp(-np.arange(int(0.12 * SR)) / SR / 0.025)
+                place(clap_l, clap * RNG.uniform(0.5, 1.0), t0 + RNG.normal(0, 0.008))
+            place(box, reed([midi_hz(m) for m in tones], BEAT * 0.45) * 0.75, t0)  # pah
+        place(box, reed([midi_hz(m) for m in tones], BEAT * 0.25) * 0.35, t0 + BEAT / 2)  # off-beat lift
+        b += 1
+    # a final chord to land on
+    place(box, reed([midi_hz(m) for m in [38, 50, 54, 57, 62]], BEAT * 4) * 1.2, end_beat * BEAT)
+    place(stomp_l, stomp * 1.2, end_beat * BEAT)
+    return stomp_l * 0.32, clap_l * 0.4, box * 0.75
+
+
+def fiddle(lines, n):
+    """A fiddle doubling the tune an octave up on the choruses."""
+    ctl = 400
+    m = n * ctl // SR + 1
+    note = np.full(m, np.nan)
+    gate = np.zeros(m)
+    for start, mode, line in lines:
+        if mode != "crew":
+            continue
+        t = start
+        for _, notes, beats in line:
+            d = beats * BEAT
+            for j, nt in enumerate(notes):
+                a, b = int((t + j * d / len(notes)) * ctl), int((t + (j + 1) * d / len(notes)) * ctl)
+                note[a:b] = nt + 12
+                gate[a:b - 6] = 1  # a tiny gap: each note gets its own bow stroke
+            t += d
+    idx = np.where(~np.isnan(note), np.arange(m), 0)
+    note = note[np.maximum.accumulate(idx)]
+    note[np.isnan(note)] = D4
+    note = np.convolve(np.pad(note, 8, mode="edge"), np.hanning(17) / np.hanning(17).sum(), "valid")
+    gate = np.convolve(np.pad(gate, 10, mode="edge"), np.hanning(21) / np.hanning(21).sum(), "valid")
+    tc = np.arange(m) / ctl
+    ts = np.arange(n) / SR
+    vib = 0.15 * np.sin(2 * np.pi * 5.8 * tc)
+    f0 = np.interp(ts, tc, 440 * 2 ** ((note - 69 + vib) / 12))
+    ph = np.cumsum(f0) / SR
+    saw = 2 * (ph % 1) - 1
+    y = bp(saw, 400, 5000) + 0.5 * bp(saw, 2500, 3500)  # bright body resonance
+    return y * np.interp(ts, tc, gate) * 0.09
 
 
 def sea(n):
@@ -319,8 +391,8 @@ def reverb(x, secs=3.2, wet=0.32, seed=0):
 
 # ---------------------------------------------------------------- video
 #
-# The photo dissolves into a charcoal pencil sketch, which then lives: its
-# lines boil at 8 fps like hand-drawn animation, the water rolls, the clouds
+# The photo dissolves into a pencil sketch on old paper, which then lives: its
+# lines boil at 12 fps like hand-drawn animation, the water rolls, the clouds
 # drift and the sails breathe. At the end the sketch dissolves back into the
 # photo and the camera returns to where it began, so the video loops.
 
@@ -357,10 +429,10 @@ def make_sketch(rgb):
     s = tone * (1 - 0.8 * np.clip(edges * 1.6, 0, 1)) * (1 - 0.45 * hatch1) * (1 - 0.5 * hatch2)
     paper = 0.9 + 0.1 * smooth_noise((h, w), 1.2, 12) - 0.05 * smooth_noise((h, w), 40, 13)
     s = s * paper
-    # storm: darken the edges and bruise the sky
+    # a little weather: darken the edges and the top of the sky
     r = np.sqrt(((xx - w / 2) / (w / 2)) ** 2 + ((yy - h * 0.55) / (h / 2)) ** 2)
-    s = s * np.clip(1.12 - 0.5 * r ** 2, 0.2, 1) * (1 - 0.35 * np.clip(1 - yy / (h * 0.45), 0, 1) ** 2)
-    sketch = s[..., None] * np.array([0.86, 0.88, 0.92], np.float32)  # cold grey paper
+    s = s * np.clip(1.15 - 0.35 * r ** 2, 0.35, 1) * (1 - 0.15 * np.clip(1 - yy / (h * 0.45), 0, 1) ** 2)
+    sketch = s[..., None] * np.array([0.98, 0.91, 0.79], np.float32)  # warm old paper
     return sketch.astype(np.float32), edges
 
 
@@ -404,6 +476,7 @@ def render_video(photo, wav_path, out_path, caps, total_s, flashes, sketch_span)
         cw, ch = W * c, H * c
         cx = bw * (0.5 + 0.06 * e) + 5 * np.sin(2 * np.pi * 7 * t / total_s)
         cy = bh * (0.5 + 0.08 * e) + 8 * np.sin(2 * np.pi * 11 * t / total_s)
+        cy += 7 * e * abs(np.sin(np.pi * t / BEAT))  # bob along with the stomp
         x0, y0 = np.clip(cx - cw / 2, 0, bw - cw), np.clip(cy - ch / 2, 0, bh - ch)
         cam = np.float32([[cw / W, 0, x0], [0, ch / H, y0]])
         photo_f = cv2.warpAffine(big, cam, (W, H), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
@@ -420,15 +493,15 @@ def render_video(photo, wav_path, out_path, caps, total_s, flashes, sketch_span)
         frame = photo_f
         if amount > 0:
             # displacement in photo pixels: boiling lines, rolling water, drifting sky, breathing sails
-            bx, by = boil[(f // 3) % 3]
+            bx, by = boil[(f // 2) % 3]
             dx = 2.2 * bx * 2
             dy = 2.2 * by * 2
             persp = water * (0.4 + 1.6 * (yy / bh - 0.52) / 0.48)
-            dx = dx + persp * 5 * np.sin(2 * np.pi * (yy / 38 - t / 3.1))
-            dy = dy + persp * 4 * np.sin(2 * np.pi * (xx / 210 + yy / 70 - t / 2.4))
+            dx = dx + persp * 5 * np.sin(2 * np.pi * (yy / 38 - t / 1.8))
+            dy = dy + persp * 4 * np.sin(2 * np.pi * (xx / 210 + yy / 70 - t / 1.4))
             dx = dx + sky * 14 * np.sin(2 * np.pi * (t / 13 + yy / 400))
             dy = dy + sky * 3 * np.sin(2 * np.pi * (t / 7 + xx / 500))
-            dx = dx + sails * 1.6 * np.sin(2 * np.pi * (t / 1.7 + yy / 160))
+            dx = dx + sails * 1.6 * np.sin(2 * np.pi * (t / BEAT / 2 + yy / 160))
             mx, my = (xx + dx).astype(np.float32), (yy + dy).astype(np.float32)
             moving = cv2.remap(sketch, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
             sk = cv2.warpAffine(moving, cam, (W, H), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
@@ -480,18 +553,22 @@ def make_audio():
     print(f"song length {total_s:.1f}s")
 
     vl, vr = render_voices(lines, n)
-    vl, vr = reverb(vl, 2.6, 0.26, seed=1), reverb(vr, 2.6, 0.26, seed=2)
+    vl, vr = reverb(vl, 1.8, 0.2, seed=1), reverb(vr, 1.8, 0.2, seed=2)
     print("humming")
     hl, hr = hum(lines, n)
-    vl += reverb(hl, 4.0, 0.5, seed=6)
-    vr += reverb(hr, 4.0, 0.5, seed=7)
+    vl += reverb(hl, 2.5, 0.35, seed=6) * 0.7
+    vr += reverb(hr, 2.5, 0.35, seed=7) * 0.7
 
     last_line_end = (lines[-1][0] + sum(b for _, _, b in lines[-1][2]) * BEAT)
-    drm, downbeats = drum(n, INTRO_BEATS - 4, last_line_end / BEAT + 1)
-    flashes = [3.2] + [downbeats[i] for i in (6, 19, 33, 48) if i < len(downbeats)]
-    band = drone(n, total_s) + sea(n) + creaks(n, total_s) + thunder(n, [f + 0.6 for f in flashes])
-    drm = reverb(drm, 2.0, 0.25, seed=3)
-    band_l, band_r = reverb(band + drm, 3.5, 0.3, seed=4), reverb(band + drm * 0.9, 3.5, 0.3, seed=5)
+    end_beat = int(np.ceil(last_line_end / BEAT / 4)) * 4 + 4
+    stomp, claps, box = band(n, lines, INTRO_BEATS - 8, end_beat)
+    fid = fiddle(lines, n)
+    # one flash of lightning on each "dead men know": the tune is merry, the tale is not
+    flashes = [start + (sum(b for _, _, b in line) - 3) * BEAT for start, mode, line in lines
+               if mode == "crew" and line[-1][0].startswith("know")]
+    ambience = sea(n) * 0.6 + creaks(n, total_s) + thunder(n, [f + 0.4 for f in flashes]) * 0.6
+    band_l = reverb(stomp + claps * 1.1 + box * 0.8 + fid * 0.6 + ambience, 1.8, 0.22, seed=4)
+    band_r = reverb(stomp + claps * 0.9 + box * 1.0 + fid * 1.2 + ambience, 1.8, 0.22, seed=5)
 
     left = vl * 1.0 + band_l
     right = vr * 1.0 + band_r
@@ -511,7 +588,7 @@ def main(photo, out_path):
         w.setframerate(SR)
         w.writeframes((stereo * 32767).astype(np.int16).tobytes())
     print("audio done; rendering video")
-    span = ((2.0, 6.5), (last_line_end + 1.0, last_line_end + 5.5))
+    span = ((1.5, 5.5), (last_line_end + 3.0, last_line_end + 6.5))
     render_video(photo, wav_path, out_path, caps, total_s, flashes, span)
     os.remove(wav_path)
     print("wrote", out_path)
