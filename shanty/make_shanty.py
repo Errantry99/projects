@@ -1,9 +1,11 @@
-"""Render "The Derwent Runs Dark": an ominous sea shanty sung over a photo.
+"""Render "The Derwent Runs Dark": an ominous sea shanty over a photo.
 
-Vocals: Kokoro neural TTS, sung by re-pitching and time-stretching each line
-onto the melody with the WORLD vocoder: vowels are held, consonants keep their
-spoken length and lead into the beat, and pitch glides with delayed vibrato. Accompaniment (drone, drum, sea, wind) is synthesized.
-Video: slow push-in on the photo, storm grade, lightning, burned-in lyrics.
+Vocals: a shantyman calls each verse and the crew chants the chorus, voiced by
+Kokoro neural TTS with natural speech rhythm, slowed and deepened with Praat's
+PSOLA; a synthesized wordless choir hums the melody beneath. Accompaniment
+(drone, drum, sea, wind, thunder) is synthesized.
+Video: the photo dissolves into a moving pencil sketch and back again, so the
+first and last frames match and it loops.
 
 usage: KOKORO_DIR=<dir with kokoro-v1.0.onnx, voices-v1.0.bin> \
        python3 make_shanty.py <photo.jpg> <out.mp4>
@@ -15,7 +17,6 @@ import sys
 import wave
 
 import numpy as np
-import pyworld as pw
 from PIL import Image, ImageDraw, ImageFont
 from scipy.signal import butter, fftconvolve, resample_poly, sosfilt
 
@@ -65,11 +66,14 @@ def midi_hz(m):
 
 
 # ---------------------------------------------------------------- vocals
+#
+# Stretching speech onto a melody always ends up sounding like a robot, so
+# the voices here are never forced to sing. The shantyman and crew *chant*
+# the words with their natural speech rhythm and intonation (lowered and
+# slowed with Praat's PSOLA, which keeps the voice quality intact), while a
+# wordless humming choir carries the tune underneath.
 
-FP = 5.0  # WORLD frame period, ms
-FS = FP / 1000
 _tts = None
-_cache = {}
 
 
 def tts():
@@ -81,143 +85,24 @@ def tts():
     return _tts
 
 
-def runs(mask):
-    """[(start, end)] of the True runs in a boolean array."""
-    d = np.diff(np.concatenate([[0], mask.astype(int), [0]]))
-    return list(zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]))
+def line_text(line):
+    return " ".join(w for w, _, _ in line)
 
 
-def analyse(word, voice):
-    """Speak one word and split it into WORLD frames plus a vowel-nucleus mask."""
-    key = (word, voice)
-    if key in _cache:
-        return _cache[key]
+def chant(text, voice, median_hz, slot, formant=0.9, pitch_range=1.0, speed=0.74):
+    """Speak `text` slowly and darkly, fitted to at most `slot` seconds."""
+    from parselmouth import Sound
+    from parselmouth.praat import call
     lang = "en-gb" if voice.startswith("b") else "en-us"
-    x, sr = tts().create(word.strip(",."), voice=voice, speed=0.85, lang=lang)
+    x, sr = tts().create(text, voice=voice, speed=speed, lang=lang)
     assert sr == VSR
-    x = x.astype(np.float64)
-    env = np.convolve(np.abs(x), np.ones(240) / 240, mode="same")
+    snd = Sound(x.astype(np.float64), sr)
+    stretch = float(np.clip(slot / snd.duration, 0.9, 1.18))
+    y = call(snd, "Change gender", 60, 400, formant, median_hz, pitch_range, stretch).values[0]
+    env = np.convolve(np.abs(y), np.ones(240) / 240, mode="same")
     keep = np.nonzero(env > env.max() * 0.02)[0]
-    x = x[max(keep[0] - 120, 0): keep[-1] + 240]
-    f0, t = pw.harvest(x, VSR, f0_floor=60, f0_ceil=400, frame_period=FP)
-    sp = pw.cheaptrick(x, f0, t, VSR)
-    ap = pw.d4c(x, f0, t, VSR)
-
-    voiced = f0 > 0
-    for a, b in runs(~voiced):  # close short unvoiced holes (pitch-tracker dropouts)
-        if a > 0 and b < len(voiced) and b - a < 7:
-            voiced[a:b] = True
-    for a, b in runs(voiced):   # drop tiny voiced specks
-        if b - a < 4:
-            voiced[a:b] = False
-    if not voiced.any():
-        voiced[:] = True
-
-    # vowel nuclei: loud, voiced frames. These are what get held; consonants
-    # and glides keep their spoken length.
-    energy = np.log(sp.sum(1) + 1e-12)
-    energy = np.convolve(energy, np.ones(5) / 5, mode="same")
-    loud = voiced & (energy > energy[voiced].max() - 1.6)
-    nuclei = [(a, b) for a, b in runs(loud) if b - a >= 3] or [max(runs(voiced), key=lambda r: r[1] - r[0])]
-    _cache[key] = (sp, ap, voiced, nuclei)
-    return _cache[key]
-
-
-def plan_word(word, notes, voice):
-    """Frame weights for stretching, plus the note each frame belongs to."""
-    sp, ap, voiced, nuclei = analyse(word, voice)
-    n = len(voiced)
-    # assign notes to nuclei: one each if counts match, else spread evenly
-    if len(nuclei) > len(notes):  # merge extra nuclei into the nearest one
-        nuclei = [(nuclei[0][0], nuclei[-1][1])] if len(notes) == 1 else nuclei[: len(notes) - 1] + [(nuclei[len(notes) - 1][0], nuclei[-1][1])]
-    stretch = np.zeros(n, bool)
-    for a, b in nuclei:
-        stretch[a:b] = True
-    note_of = np.zeros(n, int)
-    if len(nuclei) == len(notes):
-        for i, (a, _) in enumerate(nuclei):
-            note_of[a:] = i
-    else:  # fewer vowels than notes: a melisma across the held vowel(s)
-        idx = np.nonzero(stretch)[0]
-        note_of[idx] = np.minimum((np.arange(len(idx)) * len(notes)) // len(idx), len(notes) - 1)
-        note_of = np.maximum.accumulate(note_of)
-    onset = nuclei[0][0]  # frames of consonant before the first vowel
-    return sp, ap, voiced, stretch, note_of, onset
-
-
-def sing_line(line, voice, transpose, cents, seed, tempo_jitter=0.0):
-    """Sing a whole line as one continuous phrase. Returns (signal at VSR, offset s)."""
-    rng = np.random.default_rng(seed)
-    plans = [plan_word(w, notes, voice) for w, notes, _ in line]
-    beats = np.cumsum([0] + [b for _, _, b in line])
-    vowel_t = beats[:-1] * BEAT + rng.normal(0, tempo_jitter, len(line))
-    vowel_t[0] = max(vowel_t[0], 0)
-    lead = plans[0][5] * FS  # first consonant starts before the line's first beat
-    end_t = beats[-1] * BEAT - 0.25 * BEAT  # breath before the next line
-
-    sps, aps, vs, f0s = [], [], [], []
-    cur = 0  # frames written so far; frame 0 is at time -lead
-    for i, ((word, notes, b), (sp, ap, voiced, stretch, note_of, onset)) in enumerate(zip(line, plans)):
-        start_f = int(round((vowel_t[i] + lead) / FS)) - onset
-        if start_f > cur:  # rest: silent frames
-            gap = start_f - cur
-            sps.append(np.full((gap, sp.shape[1]), 1e-10)); aps.append(np.ones((gap, ap.shape[1])))
-            vs.append(np.zeros(gap, bool)); f0s.append(np.full(gap, np.nan))
-            cur = start_f
-        if i + 1 < len(line):
-            stop = vowel_t[i + 1] + lead - plans[i + 1][5] * FS
-        else:
-            stop = end_t + lead
-        n_out = max(int(round(stop / FS)) - cur, 6)
-        n_src = len(voiced)
-        n_fixed = (~stretch).sum()
-        k = max((n_out - n_fixed) / max(stretch.sum(), 1), 0.5)
-        w = np.where(stretch, k, 1.0 if k >= 1 else k)
-        cum = np.concatenate([[0], np.cumsum(w)])
-        n_out = int(cum[-1])
-        pos = np.clip(np.interp(np.arange(n_out) + 0.5, cum, np.arange(n_src + 1)) - 0.5, 0, n_src - 1)
-        i0 = np.floor(pos).astype(int)
-        i1 = np.minimum(i0 + 1, n_src - 1)
-        fr = (pos - i0)[:, None]
-        sp_o = np.exp(np.log(sp[i0] + 1e-12) * (1 - fr) + np.log(sp[i1] + 1e-12) * fr)
-        ap_o = ap[i0] * (1 - fr) + ap[i1] * fr
-        near = np.rint(pos).astype(int)
-        v_o = voiced[near]
-        # a held vowel swells slightly then relaxes; the end of the word tapers
-        held = stretch[near]
-        tt = np.arange(n_out) * FS
-        dyn = 1 + 0.25 * np.sin(np.pi * np.clip(tt / max(n_out * FS, 1e-3), 0, 1)) * held
-        tail = np.clip((n_out - np.arange(n_out)) / 16, 0, 1) ** 2
-        sp_o *= (dyn * np.maximum(tail, 0.02))[:, None] ** 2
-        ap_o[held] = ap_o[held] * 0.75  # a sung vowel is a touch purer than a spoken one
-        sps.append(sp_o); aps.append(ap_o); vs.append(v_o)
-        f0s.append(np.array([midi_hz(notes[j] + transpose) for j in note_of[near]]))
-        cur += n_out
-
-    sp = np.concatenate(sps); ap = np.concatenate(aps); v = np.concatenate(vs)
-    target = np.log2(np.concatenate(f0s)) + cents / 1200
-    rest = np.isnan(target)  # in a rest, aim at the next note so the glide lands cleanly
-    nxt = np.where(~rest, np.arange(len(target)), len(target) - 1)
-    nxt = np.minimum.accumulate(nxt[::-1])[::-1]
-    target[rest] = target[nxt[rest]]
-    n = len(target)
-    t = np.arange(n) * FS
-    # glide between notes (~70 ms), like a voice rather than a keyboard
-    pad = 7
-    lf = np.convolve(np.pad(target, pad, mode="edge"), np.hanning(2 * pad + 1) / np.hanning(2 * pad + 1).sum(), "valid")
-    # vibrato that blooms on held notes, with continuous phase across the line
-    change = np.concatenate([[True], np.abs(np.diff(target)) > 1e-6])
-    since = t - t[np.maximum.accumulate(np.where(change, np.arange(n), 0))]
-    rate = 5.1 + 0.3 * np.sin(2 * np.pi * 0.23 * t + rng.uniform(0, 6))
-    phase = 2 * np.pi * np.cumsum(rate) * FS + rng.uniform(0, 6)
-    depth = 0.28 / 12 * np.clip((since - 0.3) / 0.45, 0, 1)
-    # slow wander of a few cents, the way a real voice never sits dead on pitch
-    drift = np.convolve(rng.standard_normal(n + 80), np.hanning(81) / np.hanning(81).sum(), "valid")[:n]
-    drift = drift / (np.std(drift) + 1e-9) * 7 / 1200
-    lf = lf + depth * np.sin(phase) + drift
-    f0 = np.where(v, 2 ** lf, 0.0)
-    y = pw.synthesize(f0, np.ascontiguousarray(sp), np.ascontiguousarray(ap), VSR, FP)
-    return y, -lead
+    y = y[max(keep[0] - 240, 0): keep[-1] + 480]
+    return y / (np.sqrt(np.mean(y ** 2)) + 1e-9) * 0.1
 
 
 def to_sr(y):
@@ -250,30 +135,98 @@ def build_timeline():
     return lines, caps, beat + 10
 
 
-CREW = [  # (voice, transpose, cents, timing offset s, gain)
-    ("bm_george", 0, 0, 0.0, 1.0),
-    ("bm_lewis", 0, 6, 0.018, 0.7),
-    ("am_michael", 0, -5, -0.012, 0.6),
-    ("am_onyx", -12, 3, 0.022, 0.5),   # the deep one
-    ("bm_daniel", -5, -4, 0.01, 0.35),  # a fourth below, hollow harmony
+CREW = [  # (voice, median Hz, formant, pitch range, timing offset s, gain, pan)
+    ("bm_george", 92, 0.88, 0.7, 0.0, 1.0, 0.0),
+    ("am_onyx", 74, 0.95, 0.6, 0.045, 0.8, -0.5),
+    ("bm_lewis", 82, 0.92, 0.6, -0.03, 0.75, 0.45),
+    ("am_michael", 98, 0.9, 0.6, 0.07, 0.6, -0.25),
+    ("bm_daniel", 110, 0.93, 0.6, 0.02, 0.55, 0.3),
+    ("am_adam", 87, 0.9, 0.6, -0.05, 0.5, 0.65),
 ]
 
 
-def render_vocals(lines, n):
+def render_voices(lines, n):
+    """The shantyman calls the verses; the whole crew chants the chorus."""
     left, right = np.zeros(n), np.zeros(n)
-    for li, (start, mode, line) in enumerate(lines):
-        singers = [CREW[0], CREW[3]] if mode == "solo" else CREW
-        pans = [0.0, 0.3] if mode == "solo" else [0.0, -0.45, 0.45, -0.15, 0.25]
-        for si, ((voice, tr, cents, dt, gain), pan) in enumerate(zip(singers, pans)):
-            if mode == "solo" and tr == -12:
-                gain = 0.28  # a low ghost under the solo
-            y, off = sing_line(line, voice, tr, cents, seed=li * 10 + si, tempo_jitter=0.012 if si else 0.0)
+    for start, mode, line in lines:
+        slot = sum(b for _, _, b in line) * BEAT * 0.92
+        singers = CREW[:1] if mode == "solo" else CREW
+        for voice, hz, formant, prange, dt, gain, pan in singers:
+            if mode == "solo":
+                prange = 1.0
+            y = to_sr(chant(line_text(line), voice, hz, slot, formant, prange))
             mono = np.zeros(n)
-            place(mono, to_sr(y) * gain, start + dt + off)
+            place(mono, y * gain, start + dt)
             left += mono * np.sqrt((1 - pan) / 2)
             right += mono * np.sqrt((1 + pan) / 2)
-        print(f"  sang: {' '.join(w for w, _, _ in line)}", flush=True)
+        print(f"  chanted: {line_text(line)}", flush=True)
     return left, right
+
+
+# vowel formants (Hz, bandwidth Hz, gain) for the humming choir
+VOWELS = {
+    "oo": [(320, 80, 1.0), (800, 100, 0.35), (2400, 160, 0.06)],
+    "ah": [(650, 90, 1.0), (1080, 110, 0.6), (2550, 170, 0.15)],
+}
+
+
+def hum(lines, n):
+    """A wordless choir carrying the melody: 'oo' under verses, 'ah' under choruses."""
+    ctl = 200  # control rate, Hz
+    m = n * ctl // SR + 1
+    note = np.full(m, np.nan)
+    vowel = np.zeros(m)  # 0 = oo, 1 = ah
+    gate = np.zeros(m)
+    for start, mode, line in lines:
+        t = start
+        for _, notes, beats in line:
+            d = beats * BEAT
+            for j, nt in enumerate(notes):
+                a = int((t + j * d / len(notes)) * ctl)
+                b = int((t + (j + 1) * d / len(notes)) * ctl)
+                note[a:b] = nt
+            t += d
+        a, b = int(start * ctl), int(t * ctl)
+        gate[a:b] = 1
+        vowel[a:b] = mode == "crew"
+    # hold the last note through rests, glide ~120 ms between notes
+    idx = np.where(~np.isnan(note), np.arange(m), 0)
+    note = note[np.maximum.accumulate(idx)]
+    note[np.isnan(note)] = D3
+    k = np.hanning(49) / np.hanning(49).sum()
+    note = np.convolve(np.pad(note, 24, mode="edge"), k, "valid")
+    k2 = np.hanning(161) / np.hanning(161).sum()  # soft swells in and out of phrases
+    gate = np.convolve(np.pad(gate, 80, mode="edge"), k2, "valid")
+    vowel = np.convolve(np.pad(vowel, 80, mode="edge"), k2, "valid")
+    tc = np.arange(m) / ctl
+    ts = np.arange(n) / SR
+
+    out_l, out_r = np.zeros(n), np.zeros(n)
+    voices = [(0, -9), (0, 7), (0, -3), (0, 12), (-12, -5), (-12, 6), (7 - 12, 4), (-12, 0)]
+    for vi, (octave, cents) in enumerate(voices):
+        rng = np.random.default_rng(100 + vi)
+        drift = np.convolve(rng.standard_normal(m + 200), np.hanning(201) / np.hanning(201).sum(), "valid")[:m]
+        drift = drift / (drift.std() + 1e-9) * 6
+        vib = 0.18 * np.sin(2 * np.pi * (4.8 + 0.6 * rng.random()) * tc + rng.uniform(0, 6))
+        f0c = 440 * 2 ** ((note + octave - 69 + (cents + drift) / 100 + vib / 12) / 12)
+        f0 = np.interp(ts, tc, f0c)
+        phase = 2 * np.pi * np.cumsum(f0) / SR
+        sig = np.zeros(n)
+        for h in range(1, 40):  # additive voice: each harmonic weighted by the vowel's formants
+            fh = f0c * h
+            amp = np.zeros(m)
+            for name, w in (("oo", 1 - vowel), ("ah", vowel)):
+                for fc, bw, g in VOWELS[name]:
+                    amp += w * g / (1 + ((fh - fc) / bw) ** 2)
+            amp *= h ** -0.7 * (fh < 5000)
+            sig += np.interp(ts, tc, amp) * np.sin(h * phase)
+        breath = bp(rng.standard_normal(n), 400, 2600) * 0.04
+        sig = (sig + breath) * np.interp(ts, tc, gate)
+        pan = (vi / (len(voices) - 1)) * 1.4 - 0.7
+        out_l += sig * np.sqrt((1 - pan) / 2)
+        out_r += sig * np.sqrt((1 + pan) / 2)
+    norm = 0.3 / (np.abs(out_l).max() + 1e-9)
+    return out_l * norm, out_r * norm
 
 
 # ---------------------------------------------------------------- band
@@ -365,88 +318,151 @@ def reverb(x, secs=3.2, wet=0.32, seed=0):
 
 
 # ---------------------------------------------------------------- video
+#
+# The photo dissolves into a charcoal pencil sketch, which then lives: its
+# lines boil at 8 fps like hand-drawn animation, the water rolls, the clouds
+# drift and the sails breathe. At the end the sketch dissolves back into the
+# photo and the camera returns to where it began, so the video loops.
 
-def grade(img):
-    """Cold, dark, desaturated storm grade with a vignette."""
-    a = np.asarray(img).astype(np.float32) / 255
-    lum = a @ np.array([0.299, 0.587, 0.114], np.float32)
-    a = lum[..., None] * 0.7 + a * 0.3
-    a = np.clip((a - 0.5) * 1.35 + 0.5, 0, 1) ** 1.5
-    a *= np.array([0.78, 0.9, 1.0], np.float32)
-    h, w = lum.shape
-    yy, xx = np.mgrid[0:h, 0:w]
+def smooth_noise(shape, sigma, seed):
+    import cv2
+    n = np.random.default_rng(seed).standard_normal(shape).astype(np.float32)
+    n = cv2.GaussianBlur(n, (0, 0), sigma)
+    return (n - n.min()) / (n.max() - n.min() + 1e-9)
+
+
+def soft_box(h, w, x0, x1, y0, y1, feather):
+    """1 inside a box given in image fractions, fading out over `feather` px."""
+    import cv2
+    m = np.zeros((h, w), np.float32)
+    m[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = 1
+    return cv2.GaussianBlur(m, (0, 0), feather)
+
+
+def make_sketch(rgb):
+    """Charcoal-on-grey-paper rendering of an RGB float image, plus an edge map."""
+    import cv2
+    h, w = rgb.shape[:2]
+    gray = cv2.cvtColor((rgb * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32) / 255
+    blur = cv2.GaussianBlur(1 - gray, (0, 0), 9)
+    pencil = np.clip(gray / np.maximum(1 - blur, 1e-3), 0, 1)  # colour-dodge pencil shading
+    g8 = (cv2.GaussianBlur(gray, (0, 0), 1.6) * 255).astype(np.uint8)
+    edges = cv2.Canny(g8, 30, 90).astype(np.float32) / 255
+    edges = cv2.GaussianBlur(cv2.dilate(edges, np.ones((2, 2), np.uint8)), (0, 0), 0.9)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    wob = 2.5 * smooth_noise((h, w), 30, 11) * 6
+    hatch1 = (np.sin((xx + yy + wob) / 2.6) > 0.55) * np.clip((0.42 - gray) / 0.15, 0, 1)
+    hatch2 = (np.sin((xx - yy + wob) / 2.9) > 0.6) * np.clip((0.24 - gray) / 0.12, 0, 1)
+    tone = pencil ** 2.2
+    s = tone * (1 - 0.8 * np.clip(edges * 1.6, 0, 1)) * (1 - 0.45 * hatch1) * (1 - 0.5 * hatch2)
+    paper = 0.9 + 0.1 * smooth_noise((h, w), 1.2, 12) - 0.05 * smooth_noise((h, w), 40, 13)
+    s = s * paper
+    # storm: darken the edges and bruise the sky
     r = np.sqrt(((xx - w / 2) / (w / 2)) ** 2 + ((yy - h * 0.55) / (h / 2)) ** 2)
-    a *= np.clip(1.15 - 0.55 * r ** 2, 0.15, 1)[..., None]
-    # bruise the sky
-    sky = np.clip(1 - yy / (h * 0.5), 0, 1)[..., None] ** 1.5
-    a = a * (1 - 0.45 * sky)
-    return a
+    s = s * np.clip(1.12 - 0.5 * r ** 2, 0.2, 1) * (1 - 0.35 * np.clip(1 - yy / (h * 0.45), 0, 1) ** 2)
+    sketch = s[..., None] * np.array([0.86, 0.88, 0.92], np.float32)  # cold grey paper
+    return sketch.astype(np.float32), edges
 
 
-def render_video(photo, wav_path, out_path, caps, total_s, flashes):
+def render_video(photo, wav_path, out_path, caps, total_s, flashes, sketch_span):
+    import cv2
     W, H, FPS = 1080, 1440, 24
     src = Image.open(photo).convert("RGB")
     sw, sh = src.size
     scale = max(W / sw, H / sh) * 1.3
-    big = src.resize((int(sw * scale), int(sh * scale)), Image.LANCZOS)
-    graded = grade(big)
-    bh, bw = graded.shape[:2]
+    big = np.asarray(src.resize((int(sw * scale), int(sh * scale)), Image.LANCZOS), np.float32) / 255
+    bh, bw = big.shape[:2]
+    sketch, edges = make_sketch(big)
+    # where the sketch appears first: along the strong lines, in drifting blotches
+    edge_density = cv2.GaussianBlur(edges, (0, 0), 14)
+    reveal = 0.6 * smooth_noise((bh, bw), 28, 14) + 0.4 * (1 - edge_density / (edge_density.max() + 1e-9))
+    reveal = (reveal - reveal.min()) / (reveal.max() - reveal.min())
+
+    # regions that move differently (fractions of the photo)
+    water = np.clip((np.mgrid[0:bh, 0:bw][0] / bh - 0.52) / 0.12, 0, 1).astype(np.float32)
+    hull = soft_box(bh, bw, 0.2, 0.92, 0.5, 0.71, 18)
+    sails = soft_box(bh, bw, 0.38, 1.0, 0.0, 0.64, 22)
+    water = water * (1 - hull)
+    sky = np.clip(1 - np.mgrid[0:bh, 0:bw][0] / (bh * 0.47), 0, 1).astype(np.float32) * (1 - sails)
+    boil = [(smooth_noise((bh, bw), 6, 20 + i) - 0.5, smooth_noise((bh, bw), 6, 30 + i) - 0.5) for i in range(3)]
+    yy, xx = np.mgrid[0:bh, 0:bw].astype(np.float32)
+
     font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf", 50)
     title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", 56)
-    grain_bank = [RNG.normal(0, 0.018, (H // 4, W // 4)).astype(np.float32) for _ in range(8)]
-
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
-         "-r", str(FPS), "-i", "-", "-i", wav_path, "-vf", "hqdn3d=2:2:4:4", "-c:v", "libx264", "-preset", "slow", "-crf", "26",
+         "-r", str(FPS), "-i", "-", "-i", wav_path, "-c:v", "libx264", "-preset", "slow", "-crf", "24",
          "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
          out_path], stdin=subprocess.PIPE)
-    n_frames = int(total_s * FPS)
-    # push in slowly towards the boat (centre ~ 0.55, 0.62 of the frame)
+    (in0, in1), (out0, out1) = sketch_span
+    n_frames = int(round(total_s * FPS))
     for f in range(n_frames):
         t = f / FPS
-        p = t / total_s
-        ease = p * p * (3 - 2 * p)
-        c = 1.28 - 0.28 * ease  # crop size in output-frame units; 1.3 is the whole image
-        cw, ch = int(W * c), int(H * c)
-        cx = bw * (0.5 + (0.56 - 0.5) * ease) + 6 * np.sin(2 * np.pi * t / 5.1)
-        cy = bh * (0.5 + (0.6 - 0.5) * ease) + 9 * np.sin(2 * np.pi * t / 7.3)  # swell
-        x0 = int(np.clip(cx - cw / 2, 0, bw - cw))
-        y0 = int(np.clip(cy - ch / 2, 0, bh - ch))
-        crop = graded[y0:y0 + ch, x0:x0 + cw]
-        frame = np.asarray(Image.fromarray((crop * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR),
-                           np.float32) / 255
+        # camera: in towards the boat and back, ending exactly where it began
+        e = (1 - np.cos(2 * np.pi * t / total_s)) / 2
+        c = 1.28 - 0.22 * e
+        cw, ch = W * c, H * c
+        cx = bw * (0.5 + 0.06 * e) + 5 * np.sin(2 * np.pi * 7 * t / total_s)
+        cy = bh * (0.5 + 0.08 * e) + 8 * np.sin(2 * np.pi * 11 * t / total_s)
+        x0, y0 = np.clip(cx - cw / 2, 0, bw - cw), np.clip(cy - ch / 2, 0, bh - ch)
+        cam = np.float32([[cw / W, 0, x0], [0, ch / H, y0]])
+        photo_f = cv2.warpAffine(big, cam, (W, H), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
 
-        light = 0.92 + 0.05 * np.sin(2 * np.pi * t / 6.3) + 0.03 * np.sin(2 * np.pi * t / 1.9)
-        light *= min(1, t / 3) * min(1, (total_s - t) / 3)  # fade in / out of black
-        flash = sum(np.exp(-(t - ft) / 0.12) * (0.8 + 0.2 * np.sin(90 * (t - ft)))
-                    for ft in flashes if 0 <= t - ft < 0.9)
-        frame = frame * light + flash * 0.55 * np.array([0.85, 0.9, 1.0], np.float32)
-        g = grain_bank[f % 8]
-        frame += np.repeat(np.repeat(g, 4, 0), 4, 1)[..., None]
+        # how much of the frame is sketch
+        if t < in0 or t > out1:
+            amount = 0.0
+        elif t < in1:
+            amount = (t - in0) / (in1 - in0)
+        elif t > out0:
+            amount = 1 - (t - out0) / (out1 - out0)
+        else:
+            amount = 1.0
+        frame = photo_f
+        if amount > 0:
+            # displacement in photo pixels: boiling lines, rolling water, drifting sky, breathing sails
+            bx, by = boil[(f // 3) % 3]
+            dx = 2.2 * bx * 2
+            dy = 2.2 * by * 2
+            persp = water * (0.4 + 1.6 * (yy / bh - 0.52) / 0.48)
+            dx = dx + persp * 5 * np.sin(2 * np.pi * (yy / 38 - t / 3.1))
+            dy = dy + persp * 4 * np.sin(2 * np.pi * (xx / 210 + yy / 70 - t / 2.4))
+            dx = dx + sky * 14 * np.sin(2 * np.pi * (t / 13 + yy / 400))
+            dy = dy + sky * 3 * np.sin(2 * np.pi * (t / 7 + xx / 500))
+            dx = dx + sails * 1.6 * np.sin(2 * np.pi * (t / 1.7 + yy / 160))
+            mx, my = (xx + dx).astype(np.float32), (yy + dy).astype(np.float32)
+            moving = cv2.remap(sketch, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+            sk = cv2.warpAffine(moving, cam, (W, H), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+            if amount < 1:
+                rv = cv2.warpAffine(reveal, cam, (W, H), flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP)
+                mask = np.clip((amount * 1.25 - rv) / 0.25, 0, 1)[..., None]
+                frame = photo_f * (1 - mask) + sk * mask
+            else:
+                frame = sk
+            # lightning turns the drawing to a negative for an instant
+            flash = sum(np.exp(-(t - ft) / 0.12) for ft in flashes if 0 <= t - ft < 0.9)
+            if flash > 0.01:
+                neg = (1 - frame) * np.array([0.85, 0.92, 1.0], np.float32)
+                frame = frame + (neg - frame) * min(flash * 1.6, 1) * amount
         img = Image.fromarray((np.clip(frame, 0, 1) * 255).astype(np.uint8))
 
         d = ImageDraw.Draw(img, "RGBA")
         if t < INTRO_BEATS * BEAT:
-            a = int(255 * np.clip(min(t - 1.5, INTRO_BEATS * BEAT - 0.5 - t), 0, 1))
-            for txt, y, fnt in [("THE DERWENT RUNS DARK", 150, title_font), ("a shanty", 235, font)]:
+            a = int(255 * np.clip(min(t - 1.0, INTRO_BEATS * BEAT - 0.5 - t), 0, 1))
+            for txt, y, fnt in [("THE DERWENT RUNS DARK", 150, title_font), ("a shanty", 230, font)]:
                 tw = d.textlength(txt, font=fnt)
-                d.text(((W - tw) / 2, y), txt, font=fnt, fill=(225, 230, 235, a),
+                d.text(((W - tw) / 2, y), txt, font=fnt, fill=(235, 235, 235, a),
                        stroke_width=3, stroke_fill=(0, 0, 0, a))
         for c0, c1, text, mode in caps:
             if c0 <= t <= c1:
                 a = int(255 * np.clip(min((t - c0) / 0.4, (c1 - t) / 0.4), 0, 1))
-                fill = (215, 225, 235, a) if mode == "solo" else (235, 205, 160, a)
-                tw = d.textlength(text, font=font)
-                if tw > W - 80:
-                    words = text.split()
-                    half = len(words) // 2
-                    rows = [" ".join(words[:half]), " ".join(words[half:])]
-                else:
-                    rows = [text]
+                fill = (235, 238, 242, a) if mode == "solo" else (240, 210, 160, a)
+                words = text.split()
+                rows = [text] if d.textlength(text, font=font) <= W - 80 else \
+                    [" ".join(words[:len(words) // 2]), " ".join(words[len(words) // 2:])]
                 for i, row in enumerate(rows):
                     rw = d.textlength(row, font=font)
                     d.text(((W - rw) / 2, H - 230 + i * 62 - (len(rows) - 1) * 31), row, font=font,
-                           fill=fill, stroke_width=3, stroke_fill=(0, 0, 0, a))
+                           fill=fill, stroke_width=4, stroke_fill=(0, 0, 0, a))
         ff.stdin.write(img.tobytes())
         if f % 240 == 0:
             print(f"  frame {f}/{n_frames}", flush=True)
@@ -456,14 +472,19 @@ def render_video(photo, wav_path, out_path, caps, total_s, flashes):
 
 # ---------------------------------------------------------------- main
 
-def main(photo, out_path):
+def make_audio():
+    """Return (stereo float array, captions, total seconds, lightning times, last sung second)."""
     lines, caps, total_beats = build_timeline()
     total_s = total_beats * BEAT
     n = int(total_s * SR)
     print(f"song length {total_s:.1f}s")
 
-    vl, vr = render_vocals(lines, n)
-    vl, vr = reverb(vl, seed=1), reverb(vr, seed=2)
+    vl, vr = render_voices(lines, n)
+    vl, vr = reverb(vl, 2.6, 0.26, seed=1), reverb(vr, 2.6, 0.26, seed=2)
+    print("humming")
+    hl, hr = hum(lines, n)
+    vl += reverb(hl, 4.0, 0.5, seed=6)
+    vr += reverb(hr, 4.0, 0.5, seed=7)
 
     last_line_end = (lines[-1][0] + sum(b for _, _, b in lines[-1][2]) * BEAT)
     drm, downbeats = drum(n, INTRO_BEATS - 4, last_line_end / BEAT + 1)
@@ -477,7 +498,12 @@ def main(photo, out_path):
     stereo = np.stack([left, right], 1)
     stereo = np.tanh(stereo / np.max(np.abs(stereo)) * 1.6) * 0.89  # glue + limit
     stereo[-int(SR * 3):] *= np.linspace(1, 0, int(SR * 3))[:, None]
+    stereo[:int(SR * 0.5)] *= np.linspace(0, 1, int(SR * 0.5))[:, None]
+    return stereo, caps, total_s, flashes, last_line_end
 
+
+def main(photo, out_path):
+    stereo, caps, total_s, flashes, last_line_end = make_audio()
     wav_path = os.path.splitext(out_path)[0] + ".wav"
     with wave.open(wav_path, "w") as w:
         w.setnchannels(2)
@@ -485,7 +511,8 @@ def main(photo, out_path):
         w.setframerate(SR)
         w.writeframes((stereo * 32767).astype(np.int16).tobytes())
     print("audio done; rendering video")
-    render_video(photo, wav_path, out_path, caps, total_s, flashes)
+    span = ((2.0, 6.5), (last_line_end + 1.0, last_line_end + 5.5))
+    render_video(photo, wav_path, out_path, caps, total_s, flashes, span)
     os.remove(wav_path)
     print("wrote", out_path)
 
