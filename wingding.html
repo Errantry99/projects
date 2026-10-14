@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Wing Ding</title>
+<style>
+  :root {
+    --ink: #0f2233;
+    --paper: #f5f1e8;
+    --accent: #ff6b3d;
+    --sea: #0e5a7a;
+    --ok: #3fbf7f;
+    --warn: #ffb020;
+    --bad: #e5484d;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #9fd3ea;
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(8, 28, 44, 0.42);
+    z-index: 10;
+  }
+  .overlay.hidden { display: none; }
+  .card {
+    width: min(560px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    background: var(--paper);
+    border-radius: 14px;
+    padding: 22px 24px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  }
+  .card h1 { margin: 0 0 4px; font-size: 30px; letter-spacing: -0.02em; }
+  .card h2 { margin: 0 0 10px; font-size: 22px; }
+  .card p { margin: 6px 0 12px; line-height: 1.45; font-size: 15px; }
+  .sub { color: #3c5568; }
+  table.keys { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0 14px; }
+  table.keys td { padding: 4px 6px; border-top: 1px solid #e2dccd; vertical-align: top; }
+  table.keys td:first-child { white-space: nowrap; width: 44%; }
+  kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 1px 6px;
+    margin: 0 1px;
+    font: 600 12px/1.5 var(--sans);
+    text-align: center;
+    background: #fff;
+    border: 1px solid #c9c1ae;
+    border-bottom-width: 2px;
+    border-radius: 5px;
+  }
+  .diffs { display: flex; gap: 8px; margin: 10px 0 14px; flex-wrap: wrap; }
+  .diffs button, .actions button {
+    flex: 1 1 0;
+    min-width: 120px;
+    padding: 10px 12px;
+    font: 600 15px var(--sans);
+    color: var(--ink);
+    background: #fff;
+    border: 2px solid #d6cfbd;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .diffs button small { display: block; font-weight: 400; font-size: 12px; color: #4e6576; }
+  .diffs button[aria-pressed="true"] { border-color: var(--accent); background: #fff3ee; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .actions button kbd { color: var(--ink); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
+  .stat { background: #fff; border-radius: 10px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 22px; }
+  .stat span { font-size: 12px; color: #4e6576; }
+  .record { color: var(--accent); font-weight: 700; }
+
+  #touch {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    justify-content: space-between;
+    padding: 0 12px calc(12px + env(safe-area-inset-bottom));
+    pointer-events: none;
+    z-index: 5;
+  }
+  body.touch #touch { display: flex; }
+  .pad { display: grid; gap: 6px; pointer-events: auto; }
+  .pad.dir { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(2, 54px); }
+  .pad.act { grid-template-columns: repeat(2, 76px); grid-template-rows: 76px; align-self: end; }
+  .pad button {
+    font: 700 13px var(--sans);
+    color: #fff;
+    background: rgba(10, 35, 55, 0.45);
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    border-radius: 12px;
+    touch-action: none;
+  }
+  .pad button.on { background: rgba(255, 107, 61, 0.75); }
+  .pad.act button { border-radius: 50%; }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Wing Ding foil simulator"></canvas>
+
+<div id="title" class="overlay">
+  <div class="card">
+    <h1>Wing Ding</h1>
+    <p class="sub">Light wind, big foil. Pump the wing and the board to get up on foil, then
+      keep it flying: not so high the foil breaches, not so low you touch down, and don't
+      let it roll.</p>
+    <table class="keys">
+      <tr><td><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd></td><td>Lean forward / back (nose down / up)</td></tr>
+      <tr><td><kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd></td><td>Shift weight left / right (roll balance)</td></tr>
+      <tr><td><kbd>Space</kbd></td><td>Pump the board (one stroke per press)</td></tr>
+      <tr><td><kbd>K</kbd> or <kbd>Shift</kbd></td><td>Ding the wing (one wing pump per press)</td></tr>
+      <tr><td><kbd>P</kbd> / <kbd>Esc</kbd> · <kbd>R</kbd></td><td>Pause · restart</td></tr>
+    </table>
+    <p class="sub">Pumps work best in a steady rhythm: wing about every half second, board a
+      little slower. Mashing gives weak strokes and burns stamina. Lean back to pop up, then
+      lean forward as speed builds.</p>
+    <div class="diffs" role="group" aria-label="Conditions">
+      <button data-diff="chill" aria-pressed="false">1 · Chill<small>steady breeze, roll assist</small></button>
+      <button data-diff="normal" aria-pressed="true">2 · Normal<small>gusty 10 knots</small></button>
+      <button data-diff="gnarly" aria-pressed="false">3 · Gnarly<small>light, choppy, twitchy</small></button>
+    </div>
+    <div class="actions"><button id="startBtn" class="primary">Ride · <kbd>Enter</kbd></button></div>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="card">
+    <h2>Paused</h2>
+    <p class="sub">Press <kbd>P</kbd> or <kbd>Esc</kbd> to keep riding, <kbd>R</kbd> to restart the session.</p>
+    <div class="actions"><button id="resumeBtn" class="primary">Resume · <kbd>P</kbd></button><button id="quitBtn">Quit to title · <kbd>Q</kbd></button></div>
+  </div>
+</div>
+
+<div id="results" class="overlay hidden">
+  <div class="card">
+    <h2>Session over</h2>
+    <p id="resultLine" class="sub"></p>
+    <div class="stats">
+      <div class="stat"><b id="rScore">0 m</b><span>distance on foil (score)</span></div>
+      <div class="stat"><b id="rLongest">0 m</b><span>longest flight</span></div>
+      <div class="stat"><b id="rTakeoffs">0</b><span>takeoffs</span></div>
+      <div class="stat"><b id="rCrashes">0</b><span>wipeouts</span></div>
+    </div>
+    <div class="actions"><button id="againBtn" class="primary">Ride again · <kbd>Enter</kbd></button><button id="titleBtn">Change conditions · <kbd>Esc</kbd></button></div>
+  </div>
+</div>
+
+<div id="touch" aria-hidden="true">
+  <div class="pad dir">
+    <span></span><button data-hold="fwd">FWD</button><span></span>
+    <button data-hold="left">◀</button><button data-hold="back">BACK</button><button data-hold="right">▶</button>
+  </div>
+  <div class="pad act">
+    <button data-tap="pump">PUMP</button><button data-tap="ding">DING</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+(function () {
+
+  // ---------------------------------------------------------------------------
+  // Tuning. Every constant lives here, one per line. Units are SI: metres,
+  // seconds, kilograms, newtons, radians.
+  // ---------------------------------------------------------------------------
+  var CONFIG = {
+    dt: 1 / 120,                 // fixed simulation step
+    sessionSeconds: 120,         // length of one session
+    maxFrame: 0.1,               // longest real frame the loop will catch up on
+
+    mass: 90,                    // rider + board + wing
+    gravity: 9.81,
+    rhoWater: 1025,
+
+    foilArea: 0.15,              // front wing, m² (a big light-wind foil)
+    liftSlope: 4.5,              // CL per radian of angle of attack
+    incidence: 0.035,            // front wing's built-in angle relative to the board
+    stallAlpha: 0.24,            // angle of attack where the front wing stalls
+    cd0: 0.012,                  // foil profile drag coefficient
+    inducedK: 0.06,              // induced drag factor (CD += k·CL²)
+    mastLength: 0.85,            // board-to-foil distance
+    breachDepth: 0.06,           // foil this close to the surface ventilates
+    mastDragPerM: 1.23,          // mast drag per metre submerged, per (m/s)²
+    airDrag: 0.4,                // rider + wing parasitic drag per (m/s)²
+
+    hullDragQuad: 14,            // hull drag per (m/s)², scaled by the load on the hull
+    hullDragLin: 28,             // hull drag per m/s, scaled by the load on the hull
+    wettedDrag: 8,               // drag per m/s whenever the hull touches water
+
+    leanRate: 3,                 // how fast weight moves toward a held lean, per second
+    leanRelax: 2,                // how fast weight returns to centre when released
+    pitchPerLean: 0.15,          // board pitch commanded by full lean
+    pitchPerSpeed: 0.025,        // the nose rises this much per m/s above trimSpeed…
+    trimSpeed: 5,                // …so faster flight needs more weight forward
+    pitchOmega: 6,               // pitch response natural frequency
+    pitchZeta: 0.5,              // pitch response damping ratio
+    waterPitchMin: -0.05,        // pitch range while the hull sits on the water
+    waterPitchMax: 0.14,
+
+    rollLimit: 0.6,              // roll past this is a wipeout
+    rollAuthority: 3,            // roll acceleration from full weight shift
+    rollDamping: 2,              // roll damping while flying
+    rollInputRate: 6,            // how fast the weight shift follows the keys
+    waterRollStiffness: 25,      // the hull's roll stability while on the water
+    waterRollDamping: 7,
+
+    passiveWing: 2.0,            // steady wing thrust per (m/s of wind)²
+    dingDuration: 0.42,          // one wing pump
+    dingBase: 120,               // wing pump peak force, plus…
+    dingPerWind: 28,             // …this much per m/s of wind
+    dingStaminaCost: 0.025,
+
+    pumpDuration: 0.5,           // one board pump
+    pumpPeak: 210,               // board pump peak thrust while flying
+    pumpVertical: 320,           // down-then-up force through the feet
+    pumpPitch: 0.04,             // nose-up pitch during the push
+    pumpWaterFactor: 0.4,        // board pumps are weaker with the hull in the water
+    pumpStaminaCost: 0.02,
+
+    comboMax: 5,                 // consecutive steady strokes that count toward rhythm
+    comboBonus: 0.06,            // extra force per rhythm step
+    comboTolerance: 0.25,        // interval may differ this much from the last one
+    mashFloor: 0.15,             // weakest stroke from mashing
+    staminaRegenRest: 0.10,      // per second, after restDelay without a stroke
+    staminaRegenBusy: 0.035,     // per second while pumping
+    restDelay: 1.0,
+    fatigueKnee: 0.35,           // stamina below this weakens every stroke
+
+    takeoffHeight: 0.03,         // hull clear of the water by this much = flying
+    minFlight: 3,                // flights shorter than this don't count
+    noseDivePitch: -0.12,        // touching down this nose-down…
+    noseDiveSpeed: 3.5,          // …this fast catches the nose: a wipeout
+    crashPause: 1.6,             // seconds in the water after a wipeout
+    respawnSpeed: 0.5,
+
+    difficulties: {
+      chill:  { label: 'Chill',  windBase: 5.6, gustAmp: 0.8, rollInstability: 1.0, rollAssist: 3.5, chop: 0.4 },
+      normal: { label: 'Normal', windBase: 5.0, gustAmp: 1.2, rollInstability: 2.4, rollAssist: 0,   chop: 1.0 },
+      gnarly: { label: 'Gnarly', windBase: 4.4, gustAmp: 1.6, rollInstability: 2.8, rollAssist: 0,   chop: 1.6 }
+    },
+
+    storageKey: 'wingding.best.v1'
+  };
+
+  var KNOTS = 1.943844;
+
+  // ---------------------------------------------------------------------------
+  // Small helpers
+  // ---------------------------------------------------------------------------
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+  function approach(x, target, step) {
+    return x < target ? Math.min(target, x + step) : Math.max(target, x - step);
+  }
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(rng) {
+    var u = Math.max(1e-9, rng()), v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+  // Ornstein–Uhlenbeck: smooth, bounded random disturbance.
+  function ou(x, tau, sigma, dt, rng) {
+    return x - (x / tau) * dt + sigma * Math.sqrt(2 * dt / tau) * gauss(rng);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Simulation. Pure state + a fixed-step integrator; no DOM in here.
+  // ---------------------------------------------------------------------------
+  function newStroke() { return { t0: -99, last: -99, prevInt: 0, combo: 0, e: 0, count: 0, mashed: false }; }
+
+  function newSim(diff, seed) {
+    var rng = mulberry32(seed);
+    var d = CONFIG.difficulties[diff];
+    return {
+      diff: diff, seed: seed, rng: rng,
+      t: 0, x: 0, v: CONFIG.respawnSpeed,
+      h: 0, hd: 0,              // hull height above the water, and its rate
+      th: 0, thd: 0,            // pitch (nose up +)
+      phi: 0, phid: 0,          // roll (right side down +)
+      lean: 0, rollIn: 0,
+      stamina: 1, lastStroke: -99,
+      wind: d.windBase, windPrev: d.windBase, windOverride: null,
+      phase: [rng() * 6.283, rng() * 6.283, rng() * 6.283],
+      nRoll: 0, nPitch: 0,
+      ding: newStroke(), pump: newStroke(),
+      flying: false, flightStartX: 0, flight: 0,
+      total: 0, longest: 0, takeoffs: 0, flights: 0, touchdowns: 0, crashes: 0,
+      crash: null, crashReasons: [],
+      timeLeft: CONFIG.sessionSeconds, over: false,
+      thrust: 0, drag: 0, lift: 0, alpha: 0, stalled: false, depth: CONFIG.mastLength,
+      dingP: 0, pumpP: 0, pumpW: 0,
+      events: []                // what happened this step, for the renderer and the tests
+    };
+  }
+
+  function windAt(s, t) {
+    if (s.windOverride != null) return s.windOverride;
+    var d = CONFIG.difficulties[s.diff], p = s.phase;
+    var g = 0.55 * Math.sin(0.19 * t + p[0]) + 0.3 * Math.sin(0.47 * t + p[1]) + 0.15 * Math.sin(1.21 * t + p[2]);
+    return Math.max(1.5, d.windBase + d.gustAmp * g);
+  }
+
+  function startStroke(s, kind) {
+    var C = CONFIG, st = s[kind];
+    var T = kind === 'ding' ? C.dingDuration : C.pumpDuration;
+    var interval = s.t - st.last;
+    var e = interval >= T ? 1 : Math.max(C.mashFloor, Math.pow(interval / T, 1.5));
+    var plausible = interval >= 0.9 * T && interval <= 3 * T;
+    if (!plausible) st.combo = 0;
+    else if (st.prevInt > 0 && Math.abs(interval - st.prevInt) <= C.comboTolerance * st.prevInt) st.combo = Math.min(C.comboMax, st.combo + 1);
+    else st.combo = Math.max(0, st.combo - 2);
+    st.prevInt = plausible ? interval : 0;
+    st.mashed = e < 0.6;
+    st.last = s.t;
+    st.t0 = s.t;
+    var fatigue = 0.25 + 0.75 * Math.min(1, s.stamina / C.fatigueKnee);
+    st.e = e * fatigue * (1 + C.comboBonus * st.combo);
+    st.count++;
+    s.stamina = Math.max(0, s.stamina - (kind === 'ding' ? C.dingStaminaCost : C.pumpStaminaCost));
+    s.lastStroke = s.t;
+    s.events.push({ type: kind, e: st.e, combo: st.combo });
+  }
+
+  function endFlight(s) {
+    if (!s.flying) return;
+    s.flying = false;
+    if (s.flight >= CONFIG.minFlight) {
+      s.flights++;
+      if (s.flight > s.longest) s.longest = s.flight;
+    }
+  }
+
+  function wipeout(s, reason) {
+    endFlight(s);
+    s.crash = { reason: reason, left: CONFIG.crashPause };
+    s.crashes++;
+    s.crashReasons.push(reason);
+    s.events.push({ type: 'crash', reason: reason });
+  }
+
+  function respawn(s) {
+    s.crash = null;
+    s.v = CONFIG.respawnSpeed;
+    s.h = 0; s.hd = 0; s.th = 0; s.thd = 0; s.phi = 0; s.phid = 0;
+    s.lean = 0; s.rollIn = 0;
+    s.ding.combo = 0; s.pump.combo = 0; s.ding.t0 = -99; s.pump.t0 = -99;
+    s.stamina = Math.max(s.stamina, 0.5);
+    s.events.push({ type: 'respawn' });
+  }
+
+  // inp: { lean: -1|0|1 (1 = forward), roll: -1|0|1 (1 = right), strokes: ['ding'|'pump', …] }
+  function stepSim(s, inp, dt) {
+    var C = CONFIG, d = C.difficulties[s.diff];
+    var i;
+    if (s.over) return;
+    s.t += dt;
+    s.timeLeft = Math.max(0, s.timeLeft - dt);
+    s.windPrev = s.wind;
+    s.wind = windAt(s, s.t);
+    s.stamina = Math.min(1, s.stamina + (s.t - s.lastStroke > C.restDelay ? C.staminaRegenRest : C.staminaRegenBusy) * dt);
+
+    if (s.crash) {
+      // floating in the water, getting back on the board
+      s.v = Math.max(0, s.v - 3 * s.v * dt);
+      s.x += s.v * dt;
+      s.crash.left -= dt;
+      if (s.crash.left <= 0) respawn(s);
+      if (s.timeLeft <= 0) s.over = true;
+      return;
+    }
+
+    for (i = 0; i < inp.strokes.length; i++) startStroke(s, inp.strokes[i]);
+
+    // weight: lean and roll inputs move the rider, they are not instant
+    if (inp.lean) s.lean = approach(s.lean, inp.lean, C.leanRate * dt);
+    else s.lean = approach(s.lean, 0, C.leanRelax * dt);
+    s.rollIn = approach(s.rollIn, inp.roll, C.rollInputRate * dt);
+
+    // stroke force profiles (half sine for thrust, full sine for down-then-up)
+    var td = s.t - s.ding.t0, tp = s.t - s.pump.t0;
+    s.dingP = td < C.dingDuration ? Math.sin(Math.PI * td / C.dingDuration) : 0;
+    var pumpOn = tp < C.pumpDuration;
+    s.pumpP = pumpOn ? Math.sin(Math.PI * tp / C.pumpDuration) : 0;
+    s.pumpW = pumpOn ? Math.sin(2 * Math.PI * tp / C.pumpDuration) : 0;
+
+    var v = s.v, W = C.mass * C.gravity, wind = s.wind;
+    var airborne = s.h > 0.01;
+    var fly = clamp(s.h / 0.1, 0, 1);
+
+    // --- thrust: the wing, the wing pumps and the board pumps
+    var passive = C.passiveWing * wind * wind * Math.max(0, 1 - v / (1.9 * wind + 2));
+    var dingF = s.dingP * s.ding.e * (C.dingBase + C.dingPerWind * wind) * Math.max(0, 1 - v / (2.2 * wind + 6));
+    var speedF = clamp(v / 3.5, 0.3, 1) * clamp(1 - (v - 7) / 4, 0.2, 1);
+    var pumpF = s.pumpP * s.pump.e * C.pumpPeak * speedF * (airborne ? 1 : C.pumpWaterFactor);
+    var pumpV = -s.pumpW * s.pump.e * C.pumpVertical * (airborne ? 1 : 0.3);
+
+    // --- pitch: the rider's lean sets a target, the board follows like a spring
+    s.nPitch = ou(s.nPitch, 0.4, 0.8 * d.chop, dt, s.rng);
+    var thCmd = -C.pitchPerLean * s.lean + C.pitchPerSpeed * (v - C.trimSpeed) * fly + C.pumpPitch * s.pumpW * s.pump.e;
+    var w = C.pitchOmega;
+    s.thd += (w * w * (thCmd - s.th) - 2 * C.pitchZeta * w * s.thd + s.nPitch * fly) * dt;
+    s.th = clamp(s.th + s.thd * dt, -0.45, 0.45);
+    if (s.h <= 0) {
+      var thc = clamp(s.th, C.waterPitchMin, C.waterPitchMax);
+      if (thc !== s.th) { s.th = thc; s.thd = 0; }
+    }
+
+    // --- the foil. Sinking raises the angle of attack, which damps heave.
+    var depth = C.mastLength - s.h;
+    var alpha = s.th + C.incidence - s.hd / Math.max(v, 1);
+    var a = Math.abs(alpha), cl;
+    s.stalled = a > C.stallAlpha;
+    if (!s.stalled) cl = C.liftSlope * alpha;
+    else cl = (alpha < 0 ? -1 : 1) * C.liftSlope * C.stallAlpha * Math.max(0.35, 1 - 4 * (a - C.stallAlpha));
+    var surface = 0.88 + 0.12 * clamp((depth - C.breachDepth) / 0.25, 0, 1);
+    var q = 0.5 * C.rhoWater * v * v;
+    var lift = q * C.foilArea * cl * surface * Math.cos(s.phi);
+    var dFoil = q * C.foilArea * (C.cd0 + C.inducedK * cl * cl + (s.stalled ? 0.08 : 0));
+    var dMast = C.mastDragPerM * clamp(depth, 0, C.mastLength) * v * v;
+    var dAir = C.airDrag * v * v;
+
+    // --- heave, with the hull resting on the water when lift is short
+    var Fv = lift - W + pumpV, acc = Fv / C.mass, N = 0;
+    if (s.h <= 0) {
+      s.h = 0;
+      if (acc <= 0 && s.hd <= 0) { N = -Fv; acc = 0; s.hd = 0; }
+    }
+    s.hd += acc * dt;
+    var wasFlying = s.flying, thAtImpact = s.th;
+    s.h += s.hd * dt;
+    if (s.h < 0) { s.h = 0; s.hd = 0; N = Math.max(N, -Fv); }
+    var touching = s.h <= 0;
+    var load = N / W;
+    var dHull = touching ? load * (C.hullDragQuad * v * v + C.hullDragLin * v) + C.wettedDrag * v : 0;
+
+    // --- surge
+    s.thrust = passive + dingF + pumpF;
+    s.drag = dFoil + dMast + dAir + dHull;
+    s.lift = lift; s.alpha = alpha; s.depth = C.mastLength - s.h;
+    s.v = Math.max(0, v + (s.thrust - s.drag) / C.mass * dt);
+    s.x += s.v * dt;
+
+    // --- roll: stable on the hull, an inverted pendulum on the foil
+    s.nRoll = ou(s.nRoll, 0.4, 1.1 * d.chop, dt, s.rng);
+    var gustHeel = 0.25 * (s.wind - s.windPrev) / dt;
+    var inst = d.rollInstability * fly - C.waterRollStiffness * (1 - fly);
+    var damp = C.rollDamping * fly + C.waterRollDamping * (1 - fly);
+    var assist = d.rollAssist * (s.phi + 0.5 * s.phid) * fly;
+    s.phid += (inst * s.phi - damp * s.phid + C.rollAuthority * s.rollIn + (s.nRoll + gustHeel) * fly - assist) * dt;
+    s.phi += s.phid * dt;
+
+    // --- flight bookkeeping and wipeouts
+    if (!s.flying && s.h > C.takeoffHeight) {
+      s.flying = true;
+      s.flightStartX = s.x;
+      s.flight = 0;
+      s.takeoffs++;
+      s.events.push({ type: 'takeoff' });
+    }
+    if (s.flying) {
+      s.flight = s.x - s.flightStartX;
+      s.total += s.v * dt;
+    }
+    if (wasFlying && touching) {
+      if (thAtImpact < C.noseDivePitch && v > C.noseDiveSpeed) {
+        wipeout(s, 'nosedive');
+      } else {
+        endFlight(s);
+        s.touchdowns++;
+        s.events.push({ type: 'touchdown', flight: s.flight });
+      }
+    } else if (s.flying && s.depth < C.breachDepth) {
+      wipeout(s, 'breach');
+    }
+    if (!s.crash && Math.abs(s.phi) > C.rollLimit) wipeout(s, 'roll');
+
+    if (s.timeLeft <= 0) { endFlight(s); s.over = true; }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Input. Held keys for weight, one stroke per key press (repeats ignored).
+  // ---------------------------------------------------------------------------
+  var HOLD = {
+    KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back',
+    KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right'
+  };
+  var TAP = { Space: 'pump', KeyK: 'ding', ShiftLeft: 'ding', ShiftRight: 'ding' };
+
+  var held = { fwd: false, back: false, left: false, right: false };
+  var touchHeld = { fwd: false, back: false, left: false, right: false };
+  var queued = [];
+
+  function clearHeld() {
+    for (var k in held) { held[k] = false; touchHeld[k] = false; }
+    var on = document.querySelectorAll('.pad button.on');
+    for (var i = 0; i < on.length; i++) on[i].classList.remove('on');
+  }
+  function isHeld(k) { return held[k] || touchHeld[k]; }
+  function currentInput() {
+    return {
+      lean: (isHeld('fwd') ? 1 : 0) - (isHeld('back') ? 1 : 0),
+      roll: (isHeld('right') ? 1 : 0) - (isHeld('left') ? 1 : 0),
+      strokes: queued
+    };
+  }
+  function tap(kind) { if (game.state === 'PLAYING' && game.sim && !game.sim.crash) queued.push(kind); }
+
+  // ---------------------------------------------------------------------------
+  // Game shell: title → playing ⇄ paused → results
+  // ---------------------------------------------------------------------------
+  var $ = function (id) { return document.getElementById(id); };
+  var game = {
+    state: 'TITLE',
+    diff: 'normal',
+    sim: null,
+    manual: false,           // tests drive the clock themselves
+    seed: null,
+    acc: 0,
+    toasts: [],
+    best: loadBest(),
+    lastResult: null,
+    particles: []
+  };
+
+  function loadBest() {
+    try { return JSON.parse(localStorage.getItem(CONFIG.storageKey)) || {}; } catch (e) { return {}; }
+  }
+  function saveBest() {
+    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(game.best)); } catch (e) { /* private mode */ }
+  }
+
+  function show(id, on) { $(id).classList.toggle('hidden', !on); }
+  function setDiff(diff) {
+    if (!CONFIG.difficulties[diff]) return;
+    game.diff = diff;
+    var bs = document.querySelectorAll('.diffs button');
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', String(bs[i].dataset.diff === diff));
+  }
+
+  function start(diff, seed) {
+    if (diff) setDiff(diff);
+    var sd = seed != null ? seed : (game.seed != null ? game.seed : (Date.now() & 0x7fffffff));
+    game.sim = newSim(game.diff, sd);
+    game.state = 'PLAYING';
+    game.acc = 0;
+    game.toasts = [];
+    game.particles = [];
+    queued.length = 0;
+    clearHeld();
+    show('title', false); show('pause', false); show('results', false);
+    toast('Pump to get up on foil', '#fff', 2.5);
+  }
+
+  function pause(on) {
+    if (on && game.state === 'PLAYING') { game.state = 'PAUSED'; clearHeld(); queued.length = 0; show('pause', true); }
+    else if (!on && game.state === 'PAUSED') { game.state = 'PLAYING'; game.acc = 0; show('pause', false); }
+  }
+
+  function toTitle() {
+    game.state = 'TITLE';
+    clearHeld();
+    show('pause', false); show('results', false); show('title', true);
+  }
+
+  function finish() {
+    var s = game.sim;
+    var score = Math.round(s.total);
+    var prev = game.best[s.diff] || 0;
+    var record = score > prev;
+    if (record) { game.best[s.diff] = score; saveBest(); }
+    game.lastResult = { score: score, longest: Math.round(s.longest), takeoffs: s.takeoffs, crashes: s.crashes, record: record, diff: s.diff };
+    game.state = 'RESULTS';
+    clearHeld();
+    $('rScore').textContent = score + ' m';
+    $('rLongest').textContent = Math.round(s.longest) + ' m';
+    $('rTakeoffs').textContent = s.takeoffs;
+    $('rCrashes').textContent = s.crashes;
+    var label = CONFIG.difficulties[s.diff].label;
+    $('resultLine').innerHTML = record && score > 0
+      ? '<span class="record">New ' + label + ' record!</span> Previous best ' + prev + ' m.'
+      : label + ' best: ' + (game.best[s.diff] || 0) + ' m.';
+    show('results', true);
+  }
+
+  var CRASH_TEXT = {
+    breach: 'Breached! The foil came out and ventilated',
+    nosedive: 'Nose-dived — touched down too hard',
+    roll: 'Rolled over — keep your weight centred'
+  };
+
+  function toast(text, color, life) {
+    game.toasts.push({ text: text, color: color || '#fff', life: life || 1.4, age: 0 });
+    if (game.toasts.length > 3) game.toasts.shift();
+  }
+
+  function handleEvents(s) {
+    for (var i = 0; i < s.events.length; i++) {
+      var ev = s.events[i];
+      if (ev.type === 'takeoff') toast(s.takeoffs === 1 ? 'Up on foil!' : 'Flying', '#bfffd9', 1.2);
+      else if (ev.type === 'touchdown') { toast(ev.flight >= CONFIG.minFlight ? 'Touchdown · ' + Math.round(ev.flight) + ' m' : 'Touchdown', '#fff', 1.4); splash(s, 14); }
+      else if (ev.type === 'crash') { toast(CRASH_TEXT[ev.reason], '#ffd0c9', CONFIG.crashPause); splash(s, 30); }
+    }
+    s.events.length = 0;
+  }
+
+  // advance the simulation by n fixed steps with the current input
+  function advance(n) {
+    var s = game.sim;
+    for (var i = 0; i < n && game.state === 'PLAYING'; i++) {
+      stepSim(s, currentInput(), CONFIG.dt);
+      queued.length = 0;
+      handleEvents(s);
+      if (s.over) { finish(); break; }
+    }
+  }
+
+  // keyboard
+  window.addEventListener('keydown', function (e) {
+    var code = e.code;
+    if (HOLD[code] || TAP[code]) e.preventDefault();
+    if (game.state === 'TITLE') {
+      if (code === 'Enter' || code === 'NumpadEnter') { e.preventDefault(); start(); }
+      else if (code === 'Digit1' || code === 'Numpad1') setDiff('chill');
+      else if (code === 'Digit2' || code === 'Numpad2') setDiff('normal');
+      else if (code === 'Digit3' || code === 'Numpad3') setDiff('gnarly');
+      return;
+    }
+    if (game.state === 'RESULTS') {
+      if (e.repeat) return;
+      if (code === 'Enter' || code === 'NumpadEnter' || code === 'KeyR') { e.preventDefault(); start(); }
+      else if (code === 'Escape') toTitle();
+      return;
+    }
+    if (game.state === 'PAUSED') {
+      if (e.repeat) return;
+      if (code === 'KeyP' || code === 'Escape') pause(false);
+      else if (code === 'KeyR') start();
+      else if (code === 'KeyQ') toTitle();
+      return;
+    }
+    // PLAYING
+    if (HOLD[code]) { held[HOLD[code]] = true; return; }
+    if (TAP[code]) { if (!e.repeat) tap(TAP[code]); return; }
+    if (e.repeat) return;
+    if (code === 'KeyP' || code === 'Escape') pause(true);
+    else if (code === 'KeyR') start();
+  });
+  window.addEventListener('keyup', function (e) {
+    if (HOLD[e.code]) { held[HOLD[e.code]] = false; e.preventDefault(); }
+  });
+  window.addEventListener('blur', function () { clearHeld(); pause(true); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { clearHeld(); pause(true); } });
+
+  // buttons
+  var diffButtons = document.querySelectorAll('.diffs button');
+  for (var bi = 0; bi < diffButtons.length; bi++) {
+    diffButtons[bi].addEventListener('click', function () { setDiff(this.dataset.diff); });
+  }
+  $('startBtn').addEventListener('click', function () { start(); });
+  $('resumeBtn').addEventListener('click', function () { pause(false); });
+  $('quitBtn').addEventListener('click', toTitle);
+  $('againBtn').addEventListener('click', function () { start(); });
+  $('titleBtn').addEventListener('click', toTitle);
+  // buttons should not steal Space/Enter from the game once clicked
+  var allButtons = document.querySelectorAll('button');
+  for (var ai = 0; ai < allButtons.length; ai++) {
+    allButtons[ai].addEventListener('keydown', function (e) { if (e.code === 'Space' || e.code === 'Enter') e.preventDefault(); });
+    allButtons[ai].addEventListener('mouseup', function () { this.blur(); });
+  }
+
+  // touch pads
+  if (window.matchMedia && matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
+  var holdBtns = document.querySelectorAll('[data-hold]');
+  for (var hi = 0; hi < holdBtns.length; hi++) {
+    (function (b) {
+      var k = b.dataset.hold;
+      var down = function (e) { e.preventDefault(); touchHeld[k] = true; b.classList.add('on'); };
+      var up = function (e) { e.preventDefault(); touchHeld[k] = false; b.classList.remove('on'); };
+      b.addEventListener('pointerdown', down);
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
+      b.addEventListener('pointerleave', up);
+    })(holdBtns[hi]);
+  }
+  var tapBtns = document.querySelectorAll('[data-tap]');
+  for (var ti = 0; ti < tapBtns.length; ti++) {
+    (function (b) {
+      b.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        tap(b.dataset.tap);
+        b.classList.add('on');
+        setTimeout(function () { b.classList.remove('on'); }, 120);
+      });
+    })(tapBtns[ti]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------------
+  var canvas = $('game');
+  var ctx = canvas.getContext('2d');
+  var view = { w: 0, h: 0, dpr: 1 };
+
+  function resize() {
+    view.dpr = Math.min(2, window.devicePixelRatio || 1);
+    view.w = window.innerWidth;
+    view.h = window.innerHeight;
+    canvas.width = Math.round(view.w * view.dpr);
+    canvas.height = Math.round(view.h * view.dpr);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // a calm demo state to draw behind the title screen
+  var demo = newSim('chill', 7);
+  demo.h = 0.42; demo.v = 5.5; demo.flying = true;
+
+  function splash(s, n) {
+    for (var i = 0; i < n; i++) {
+      game.particles.push({
+        x: s.x + 0.5 + Math.random() * 0.6, y: 0.02,
+        vx: s.v * (0.2 + Math.random() * 0.5) - 0.5, vy: 1 + Math.random() * 2.5,
+        life: 0.5 + Math.random() * 0.6, age: 0
+      });
+    }
+  }
+
+  function updateFx(dt, s) {
+    var i, p;
+    for (i = game.particles.length - 1; i >= 0; i--) {
+      p = game.particles[i];
+      p.age += dt; p.vy -= 9.81 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.age > p.life || p.y < -0.05) game.particles.splice(i, 1);
+    }
+    // a little spray from the hull while it drags on the surface
+    if (s && game.state === 'PLAYING' && !s.crash && s.h <= 0.005 && s.v > 1.5 && Math.random() < s.v * dt * 3) splash(s, 1);
+    for (i = game.toasts.length - 1; i >= 0; i--) {
+      game.toasts[i].age += dt;
+      if (game.toasts[i].age > game.toasts[i].life) game.toasts.splice(i, 1);
+    }
+  }
+
+  function waveY(x, t, chop) {
+    return chop * (0.035 * Math.sin(x * 1.7 - t * 2.1) + 0.02 * Math.sin(x * 3.9 + t * 1.3) + 0.012 * Math.sin(x * 7.3 - t * 3.7));
+  }
+
+  function render() {
+    var s = game.state === 'TITLE' || !game.sim ? demo : game.sim;
+    var W = view.w, H = view.h, dpr = view.dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    var ppm = clamp(Math.min(H / 6.4, W / 5.5), 46, 130);  // pixels per metre
+    var waterY = H * 0.56;
+    var camX = s.x;
+    var originX = W * 0.36;
+    var sx = function (x) { return originX + (x - camX) * ppm; };
+    var sy = function (y) { return waterY - y * ppm; };
+    var t = s.t;
+    var chop = CONFIG.difficulties[s.diff].chop;
+
+    // sky
+    var g = ctx.createLinearGradient(0, 0, 0, waterY);
+    g.addColorStop(0, '#5fb3dd'); g.addColorStop(1, '#cdebf5');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, waterY + 2);
+    ctx.fillStyle = 'rgba(255, 244, 214, 0.9)';
+    ctx.beginPath(); ctx.arc(W * 0.82, H * 0.13, Math.max(18, H * 0.045), 0, 7); ctx.fill();
+
+    // clouds (parallax)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (var c = 0; c < 6; c++) {
+      var span = W + 300;
+      var cx = ((c * 397 - camX * ppm * 0.08) % span + span) % span - 150;
+      var cy = H * (0.08 + 0.07 * ((c * 7) % 4));
+      var r = 16 + (c % 3) * 9;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 7); ctx.arc(cx + r, cy - r * 0.4, r * 0.9, 0, 7); ctx.arc(cx + r * 2, cy, r * 0.8, 0, 7);
+      ctx.fill();
+    }
+    // far shore
+    ctx.fillStyle = '#7fa9a0';
+    ctx.beginPath(); ctx.moveTo(0, waterY - 26);
+    for (var fx = 0; fx <= W; fx += 40) {
+      var wx = fx + camX * ppm * 0.03;
+      ctx.lineTo(fx, waterY - 18 - 10 * Math.sin(wx * 0.006) - 6 * Math.sin(wx * 0.017));
+    }
+    ctx.lineTo(W, waterY); ctx.lineTo(0, waterY); ctx.fill();
+
+    // distance buoys every 25 m
+    var first = Math.floor((camX - originX / ppm) / 25) * 25;
+    for (var bx = first; bx < camX + (W - originX) / ppm + 25; bx += 25) {
+      var px = sx(bx), py = sy(waveY(bx, t, chop));
+      ctx.fillStyle = bx % 100 === 0 ? '#ff6b3d' : '#ffcf3d';
+      ctx.beginPath(); ctx.moveTo(px - 9, py + 4); ctx.lineTo(px, py - 22); ctx.lineTo(px + 9, py + 4); ctx.fill();
+      ctx.fillStyle = 'rgba(15,34,51,0.75)'; ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(bx + ' m', px, py - 27);
+    }
+
+    drawRig(s, sx, sy, ppm);
+
+    // the sea: drawn over the underwater part of the rig so it reads as submerged
+    var sea = ctx.createLinearGradient(0, waterY, 0, H);
+    sea.addColorStop(0, 'rgba(22, 120, 160, 0.62)'); sea.addColorStop(1, 'rgba(6, 40, 70, 0.92)');
+    ctx.fillStyle = sea;
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (var x = 0; x <= W + 8; x += 8) ctx.lineTo(x, sy(waveY(camX + (x - originX) / ppm, t, chop)));
+    ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (x = 0; x <= W + 8; x += 8) {
+      var yy = sy(waveY(camX + (x - originX) / ppm, t, chop));
+      if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+
+    // spray
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (var pi = 0; pi < game.particles.length; pi++) {
+      var p = game.particles[pi];
+      ctx.globalAlpha = 1 - p.age / p.life;
+      ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), 2.5, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    if (game.state !== 'TITLE' && game.sim) drawHud(game.sim, W, H);
+  }
+
+  function drawRig(s, sx, sy, ppm) {
+    var C = CONFIG;
+    var bx = sx(s.x), by = sy(s.h);
+    var pumpC = s.crash ? 0 : Math.max(0, s.pumpW) * s.pump.e;
+    var crashed = !!s.crash;
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(-s.th);
+    ctx.scale(ppm, ppm);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // mast + foil
+    ctx.fillStyle = '#2b3440';
+    ctx.fillRect(0.02, 0, 0.05, C.mastLength);
+    ctx.fillRect(-0.48, C.mastLength - 0.02, 0.86, 0.045);          // fuselage
+    ctx.beginPath(); ctx.ellipse(0.28, C.mastLength, 0.13, 0.03, 0, 0, 7); ctx.fill();   // front wing
+    ctx.beginPath(); ctx.ellipse(-0.44, C.mastLength - 0.005, 0.07, 0.016, 0, 0, 7); ctx.fill(); // stabiliser
+
+    // board
+    ctx.fillStyle = '#f7f3ea';
+    ctx.strokeStyle = '#18324a'; ctx.lineWidth = 0.02;
+    ctx.beginPath();
+    ctx.moveTo(-0.72, -0.01); ctx.lineTo(0.55, -0.01);
+    ctx.quadraticCurveTo(0.78, -0.02, 0.8, -0.1);
+    ctx.lineTo(-0.72, -0.12); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff6b3d'; ctx.fillRect(-0.72, -0.075, 1.4, 0.022);
+    ctx.restore();
+
+    // rider, upright in world space, feet on the deck
+    var cos = Math.cos(-s.th), sin = Math.sin(-s.th);
+    function deck(u) { return { x: bx + (u * cos - (-0.12) * sin) * ppm, y: by + (u * sin + (-0.12) * cos) * ppm }; }
+    var back = deck(-0.25), front = deck(0.22);
+    var S = ppm;
+
+    if (crashed) {
+      // rider in the water next to the board, wing flat on the surface
+      var wx = bx - 0.9 * S, wy = sy(0);
+      ctx.fillStyle = '#ff6b3d';
+      ctx.beginPath(); ctx.ellipse(wx - 0.6 * S, wy + 2, 0.9 * S, 0.1 * S, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#18324a';
+      ctx.beginPath(); ctx.arc(wx + 0.2 * S, wy - 0.06 * S, 0.11 * S, 0, 7); ctx.fill();
+      return;
+    }
+
+    var crouch = 0.22 + 0.32 * pumpC;
+    var leanX = s.lean * 0.14;
+    var hip = { x: (back.x + front.x) / 2 + leanX * S, y: Math.min(back.y, front.y) - (0.92 - crouch * 0.6) * S };
+    var torsoA = 0.22 + s.lean * 0.18;
+    var shoulder = { x: hip.x + Math.sin(torsoA) * 0.58 * S, y: hip.y - Math.cos(torsoA) * 0.58 * S };
+    var head = { x: shoulder.x + Math.sin(torsoA) * 0.16 * S, y: shoulder.y - Math.cos(torsoA) * 0.16 * S };
+
+    // wing: held up and forward by its boom, pulled down and back through a ding
+    var dingA = s.dingP * Math.min(1.2, s.ding.e);
+    var wingAng = -0.3 + 0.5 * dingA;                 // rotation of the wing's chord
+    var wingC = { x: shoulder.x + (0.22 - 0.08 * dingA) * S, y: shoulder.y - (0.68 - 0.22 * dingA) * S };
+    var wc = Math.cos(wingAng), ws = Math.sin(wingAng);
+    var boom = function (u) { return { x: wingC.x + (u * wc - 0.3 * ws) * S, y: wingC.y + (u * ws + 0.3 * wc) * S }; };
+    var hands = [boom(-0.22), boom(0.24)];
+
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#18324a';
+    ctx.lineWidth = Math.max(3, 0.07 * S);
+    // legs
+    var knee = function (foot, dir) { return { x: (foot.x + hip.x) / 2 + dir * (0.1 + 0.25 * crouch) * S, y: (foot.y + hip.y) / 2 }; };
+    var kb = knee(back, 1), kf = knee(front, 1);
+    ctx.beginPath(); ctx.moveTo(back.x, back.y); ctx.lineTo(kb.x, kb.y); ctx.lineTo(hip.x, hip.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(front.x, front.y); ctx.lineTo(kf.x, kf.y); ctx.lineTo(hip.x, hip.y); ctx.stroke();
+    // torso
+    ctx.lineWidth = Math.max(4, 0.11 * S);
+    ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(shoulder.x, shoulder.y); ctx.stroke();
+    // arms
+    ctx.lineWidth = Math.max(2.5, 0.055 * S);
+    for (var hI = 0; hI < 2; hI++) { ctx.beginPath(); ctx.moveTo(shoulder.x, shoulder.y); ctx.lineTo(hands[hI].x, hands[hI].y); ctx.stroke(); }
+    // head
+    ctx.fillStyle = '#18324a';
+    ctx.beginPath(); ctx.arc(head.x, head.y, 0.11 * S, 0, 7); ctx.fill();
+
+    // the wing (seen from the side: a curved canopy with a leading-edge tube)
+    ctx.save();
+    ctx.translate(wingC.x, wingC.y);
+    ctx.rotate(wingAng);
+    var span = 1.15 * S;
+    ctx.fillStyle = 'rgba(255, 107, 61, 0.92)';
+    ctx.strokeStyle = '#c4421a'; ctx.lineWidth = Math.max(3, 0.08 * S);
+    ctx.beginPath();
+    ctx.moveTo(span * 0.55, 0);
+    ctx.quadraticCurveTo(0, -0.55 * S, -span * 0.55, 0.05 * S);
+    ctx.quadraticCurveTo(0, -0.2 * S, span * 0.55, 0);
+    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(span * 0.55, 0); ctx.quadraticCurveTo(0, -0.55 * S, -span * 0.55, 0.05 * S); ctx.stroke();
+    ctx.strokeStyle = '#18324a'; ctx.lineWidth = Math.max(1.5, 0.03 * S);
+    ctx.beginPath(); ctx.moveTo(-0.3 * S, 0.3 * S); ctx.lineTo(0.3 * S, 0.3 * S); ctx.stroke();     // boom
+    ctx.beginPath(); ctx.moveTo(0, 0.3 * S); ctx.lineTo(0, -0.28 * S); ctx.stroke();               // strut
+    ctx.restore();
+  }
+
+  function bar(x, y, w, h, frac, color, label) {
+    ctx.fillStyle = 'rgba(10, 30, 46, 0.45)'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = color; ctx.fillRect(x, y, w * clamp(frac, 0, 1), h);
+    if (label) { ctx.fillStyle = '#fff'; ctx.font = '600 11px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText(label, x, y - 4); }
+  }
+
+  function panel(x, y, w, h) {
+    ctx.fillStyle = 'rgba(10, 30, 46, 0.55)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, 10); else ctx.rect(x, y, w, h);
+    ctx.fill();
+  }
+
+  // the one coaching line the HUD shows, most urgent first
+  function warning(s) {
+    var C = CONFIG;
+    if (!s || s.crash) return null;
+    if (s.flying && s.depth < C.breachDepth + 0.1) return 'Too high — lean forward';
+    if (Math.abs(s.phi) > C.rollLimit * 0.6) return s.phi > 0 ? 'Falling right — shift left' : 'Falling left — shift right';
+    if (s.stalled && s.v > 1) return 'Stalling — lean forward';
+    if (s.flying && s.h < 0.15 && s.th < -0.07 && s.v > C.noseDiveSpeed) return 'Nose down — ease off';
+    if (s.stamina < 0.15) return 'Exhausted — glide a moment';
+    if ((s.ding.mashed && s.t - s.ding.last < 1) || (s.pump.mashed && s.t - s.pump.last < 1)) return 'Too fast — pump in a steady rhythm';
+    return null;
+  }
+
+  function drawHud(s, W, H) {
+    var C = CONFIG;
+    var small = W < 560;
+    ctx.textBaseline = 'alphabetic';
+
+    // top-left: speed, wind, clock
+    panel(12, 12, small ? 150 : 190, 74);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+    ctx.font = '700 26px system-ui, sans-serif';
+    ctx.fillText((s.v * KNOTS).toFixed(1), 24, 44);
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillText('kn board', 24 + ctx.measureText('00.0').width * 2.2, 44);
+    var gust = s.wind - s.windPrev;
+    ctx.fillText('wind ' + (s.wind * KNOTS).toFixed(1) + ' kn ' + (gust > 0.0004 ? '▲' : gust < -0.0004 ? '▼' : ''), 24, 62);
+    var tl = Math.ceil(s.timeLeft);
+    ctx.fillText('time ' + Math.floor(tl / 60) + ':' + ('0' + (tl % 60)).slice(-2), 24, 78);
+
+    // top-right: distances
+    var pw = small ? 150 : 190;
+    panel(W - pw - 12, 12, pw, 74);
+    ctx.textAlign = 'right';
+    ctx.font = '700 26px system-ui, sans-serif';
+    ctx.fillText(Math.round(s.total) + ' m', W - 24, 44);
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.fillText(s.flying ? 'this flight ' + Math.round(s.flight) + ' m' : (s.crash ? 'in the water' : 'on the water'), W - 24, 62);
+    ctx.fillText('longest ' + Math.round(Math.max(s.longest, s.flying ? s.flight : 0)) + ' m · best ' + (game.best[s.diff] || 0) + ' m', W - 24, 78);
+
+    // left: ride height gauge (the mast, from touchdown to breach)
+    var gx = 18, gy = 104, gh = Math.min(200, H * 0.3), gw = 16;
+    var top = C.mastLength - C.breachDepth;
+    panel(gx - 6, gy - 22, gw + 52, gh + 32);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('height', gx - 2, gy - 8);
+    ctx.fillStyle = 'rgba(229,72,77,0.8)'; ctx.fillRect(gx, gy, gw, gh * 0.12);                 // breach zone
+    ctx.fillStyle = 'rgba(63,191,127,0.55)'; ctx.fillRect(gx, gy + gh * 0.12, gw, gh * 0.68);   // sweet spot
+    ctx.fillStyle = 'rgba(255,176,32,0.75)'; ctx.fillRect(gx, gy + gh * 0.8, gw, gh * 0.2);     // close to the water
+    var hy = gy + gh * (1 - clamp(s.h / top, 0, 1));
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(gx + gw + 2, hy); ctx.lineTo(gx + gw + 12, hy - 6); ctx.lineTo(gx + gw + 12, hy + 6); ctx.fill();
+    ctx.fillText((s.h * 100).toFixed(0) + ' cm', gx + gw + 14, hy + 4);
+
+    // pitch / lean indicator under the gauge
+    var ly = gy + gh + 30;
+    panel(gx - 6, ly - 14, gw + 52, 46);
+    ctx.fillStyle = '#fff'; ctx.fillText('lean', gx - 2, ly);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.fillRect(gx, ly + 10, 56, 6);
+    ctx.fillStyle = '#ffcf3d'; ctx.fillRect(gx + 28 + s.lean * 26 - 3, ly + 6, 6, 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '600 9px system-ui, sans-serif';
+    ctx.fillText('back', gx, ly + 29); ctx.textAlign = 'right'; ctx.fillText('fwd', gx + 56, ly + 29);
+
+    // bottom-left: stamina and rhythm
+    var by = H - (document.body.classList.contains('touch') ? 190 : 56);
+    panel(12, by - 22, 210, 52);
+    var stamCol = s.stamina > C.fatigueKnee ? '#3fbf7f' : s.stamina > 0.15 ? '#ffb020' : '#e5484d';
+    bar(24, by - 6, 90, 8, s.stamina, stamCol, 'stamina');
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillText('rhythm', 128, by - 10);
+    for (var k = 0; k < 2; k++) {
+      var st = k === 0 ? s.ding : s.pump;
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.font = '600 9px system-ui, sans-serif';
+      ctx.fillText(k === 0 ? 'wing' : 'board', 128, by + 6 + k * 14);
+      for (var d = 0; d < C.comboMax; d++) {
+        ctx.fillStyle = d < st.combo ? '#ffcf3d' : 'rgba(255,255,255,0.25)';
+        ctx.beginPath(); ctx.arc(166 + d * 10, by + 3 + k * 14, 3.5, 0, 7); ctx.fill();
+      }
+    }
+
+    // bottom-right: roll, seen from behind
+    var rw = 120, rh = 92;
+    var rx = W - rw - 12, ry = H - rh - (document.body.classList.contains('touch') ? 160 : 12);
+    panel(rx, ry, rw, rh);
+    var cx = rx + rw / 2, cy = ry + rh * 0.52;
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '600 10px system-ui, sans-serif';
+    ctx.fillText('roll (from behind)', cx, ry + 12);
+    ctx.strokeStyle = 'rgba(229,72,77,0.9)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy + 22, 40, -Math.PI / 2 - C.rollLimit - 0.25, -Math.PI / 2 - C.rollLimit); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy + 22, 40, -Math.PI / 2 + C.rollLimit, -Math.PI / 2 + C.rollLimit + 0.25); ctx.stroke();
+    ctx.save();
+    ctx.translate(cx, cy + 22);
+    ctx.rotate(s.phi);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-20, 0); ctx.lineTo(20, 0); ctx.stroke();              // board
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 14); ctx.stroke();                // mast
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-2 + s.rollIn * 4, -18); ctx.lineTo(8, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2 + s.rollIn * 4, -18); ctx.lineTo(-2 + s.rollIn * 6, -32); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-2 + s.rollIn * 6, -37, 4, 0, 7); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rx + 8, cy + 26); ctx.lineTo(rx + rw - 8, cy + 26); ctx.stroke();
+
+    // warnings and toasts
+    var warn = warning(s);
+    var ty = H * 0.2;
+    ctx.textAlign = 'center';
+    if (warn) {
+      ctx.font = '700 16px system-ui, sans-serif';
+      ctx.fillStyle = '#ffe2a8';
+      ctx.fillText(warn, W / 2, ty);
+      ty += 26;
+    }
+    for (var i = 0; i < game.toasts.length; i++) {
+      var tt = game.toasts[i];
+      ctx.globalAlpha = clamp((tt.life - tt.age) / 0.3, 0, 1);
+      ctx.font = '800 ' + (small ? 20 : 26) + 'px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(10,30,46,0.5)';
+      ctx.fillText(tt.text, W / 2 + 1, ty + 2);
+      ctx.fillStyle = tt.color;
+      ctx.fillText(tt.text, W / 2, ty);
+      ty += 32;
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Main loop
+  // ---------------------------------------------------------------------------
+  var lastTime = null;
+  function frame(now) {
+    var dtReal = lastTime == null ? 0 : Math.min(CONFIG.maxFrame, (now - lastTime) / 1000);
+    lastTime = now;
+    if (game.state === 'TITLE') {
+      demo.t += dtReal; demo.x += demo.v * dtReal;
+      demo.th = 0.03 * Math.sin(demo.t * 0.8); demo.h = 0.42 + 0.05 * Math.sin(demo.t * 0.6);
+      var dp = (demo.t % 1.4) / 0.5; demo.pumpW = dp < 1 ? Math.sin(2 * Math.PI * dp) : 0; demo.pump.e = 1;
+      var dd = (demo.t % 1.1) / CONFIG.dingDuration; demo.dingP = dd < 1 ? Math.sin(Math.PI * dd) : 0; demo.ding.e = 1;
+    } else if (game.state === 'PLAYING' && !game.manual) {
+      game.acc += dtReal;
+      var n = Math.floor(game.acc / CONFIG.dt);
+      game.acc -= n * CONFIG.dt;
+      advance(n);
+    }
+    updateFx(game.state === 'PLAYING' ? dtReal : 0, game.sim);
+    render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------------------------------------------------------------------------
+  // Debug handle for the acceptance checks (and the curious).
+  //   wingding.manual = true   stops the real-time clock; wingding.step(n) advances it
+  // ---------------------------------------------------------------------------
+  window.wingding = {
+    CONFIG: CONFIG,
+    get state() { return game.state; },
+    get sim() { return game.sim; },
+    get diff() { return game.diff; },
+    get best() { return game.best; },
+    get lastResult() { return game.lastResult; },
+    get manual() { return game.manual; },
+    set manual(on) { game.manual = !!on; game.acc = 0; },
+    get held() { var o = {}; for (var k in held) o[k] = isHeld(k); return o; },
+    get queued() { return queued.slice(); },
+    get warning() { return warning(game.sim); },
+    get toasts() { return game.toasts.map(function (t) { return t.text; }); },
+    start: function (diff, seed) { start(diff, seed); },
+    step: function (n) { if (game.state === 'PLAYING') advance(n == null ? 1 : n); return game.sim; },
+    seconds: function (sec) { if (game.state === 'PLAYING') advance(Math.round(sec / CONFIG.dt)); return game.sim; },
+    setSeed: function (seed) { game.seed = seed; },
+    newSim: newSim,
+    stepSim: stepSim
+  };
+})();
+</script>
+</body>
+</html>
