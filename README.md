@@ -69,7 +69,7 @@ clock, then `wingding.step(n)` advances it.
 ### Acceptance checks
 
 ```
-node wingding.qa.mjs                 # 87 checks across W1–W7
+node wingding.qa.mjs                 # every check, W1–W8
 SHOTS=shots node wingding.qa.mjs     # …and save screenshots
 ```
 

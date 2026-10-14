@@ -342,7 +342,8 @@ section('W4 — balance on the foil: height, pitch and roll');
   // helper: get up on foil with the rider, then hand over to `then`
   async function airborne(diffKey = 'Digit2') {
     await startManual(page, diffKey);
-    const { s } = await drive(page, 20, (st, m) => (st.flying && st.h > 0.3 ? { tap: [] } : rider()(st, m)));
+    // hand over the moment it is up and settled, so every test starts from a clean flight
+    const { s } = await drive(page, 20, rider(), 0.05, (x) => x.flying && x.h > 0.3);
     return s;
   }
 
@@ -354,7 +355,10 @@ section('W4 — balance on the foil: height, pitch and roll');
   check('balanced riding stays up for 15 s', r.trace.every(x => x.flying && !x.crash),
         r.s.reasons.join(',') || 'touched down');
   const hs = r.trace.map(x => x.h);
-  check('…in the safe band of the mast', Math.min(...hs) > 0.12 && Math.max(...hs) < 0.72, f2(Math.min(...hs)) + '–' + f2(Math.max(...hs)) + ' m');
+  // the HUD gauge's green band runs from 20% to 88% of the usable mast
+  const top = 0.85 - 0.06, inGreen = hs.filter(h => h > 0.2 * top && h < 0.88 * top).length / hs.length;
+  check('…mostly in the green band of the height gauge', inGreen > 0.85,
+        Math.round(inGreen * 100) + '% of the time, ' + f2(Math.min(...hs)) + '–' + f2(Math.max(...hs)) + ' m');
   if (SHOTS) await page.screenshot({ path: join(SHOTS, '4-flying.png') });
   check('…keeping roll small', Math.max(...r.trace.map(x => Math.abs(x.phi))) < 0.25,
         f2(Math.max(...r.trace.map(x => Math.abs(x.phi)))) + ' rad');
@@ -516,6 +520,44 @@ section('W7 — phone: touch pads and a narrow screen');
   }
   check('no page errors', errs.length === 0, errs.join(' | '));
   await page.close();
+}
+
+// ---------------------------------------------------------------------------
+section('W8 — HUD layout across screens');
+{
+  const screens = [
+    ['laptop', { width: 1280, height: 800 }, {}],
+    ['desktop', { width: 1920, height: 1080 }, {}],
+    ['small laptop', { width: 1024, height: 600 }, {}],
+    ['phone', { width: 390, height: 844 }, { hasTouch: true, isMobile: true }],
+    ['phone on its side', { width: 844, height: 390 }, { hasTouch: true, isMobile: true }],
+  ];
+  const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const [name, viewport, extra] of screens) {
+    const { page, errs } = await open(browser, { viewport, ...extra });
+    await page.evaluate(() => { wingding.start('normal', 1); wingding.manual = true; });
+    const { hud, pads } = await page.evaluate(() => ({
+      hud: wingding.hud,
+      pads: [...document.querySelectorAll('.pad')].filter(p => p.offsetParent).map(p => {
+        const r = p.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
+    }));
+    const names = Object.keys(hud), clashes = [];
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) if (overlap(hud[names[i]], hud[names[j]])) clashes.push(names[i] + '/' + names[j]);
+      for (const p of pads) if (overlap(hud[names[i]], p)) clashes.push(names[i] + '/touch pad');
+    }
+    const off = names.filter(k => { const r = hud[k]; return r.x < 0 || r.y < 0 || r.x + r.w > viewport.width || r.y + r.h > viewport.height; });
+    check(name + ': HUD panels sit on screen without overlapping', clashes.length === 0 && off.length === 0,
+          [...clashes, ...off.map(k => k + ' off screen')].join(', ') || names.length + ' panels' + (pads.length ? ', ' + pads.length + ' pads' : ''));
+    if (SHOTS) {
+      await page.evaluate(() => { wingding.manual = false; });
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: join(SHOTS, '8-' + name.replace(/ /g, '-') + '.png') });
+    }
+    check(name + ': no page errors', errs.length === 0, errs.join(' | '));
+    await page.close();
+  }
 }
 
 await browser.close();

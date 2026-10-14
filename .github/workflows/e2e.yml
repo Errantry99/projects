@@ -35,5 +35,5 @@ jobs:
       - name: Acceptance checks (T1-T9)
         run: node channel.qa.mjs
 
-      - name: Wing Ding acceptance checks (W1-W7)
+      - name: Wing Ding acceptance checks (W1-W8)
         run: node wingding.qa.mjs
