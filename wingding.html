@@ -86,6 +86,7 @@
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .actions button kbd { color: var(--ink); }
+  .card button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 16px; }
   .stat { background: #fff; border-radius: 10px; padding: 8px 10px; }
   .stat b { display: block; font-size: 22px; }
@@ -154,8 +155,8 @@
       <tr><td><kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd></td><td>Lean forward / back (nose down / up)</td></tr>
       <tr><td><kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd></td><td>Shift weight left / right (roll balance)</td></tr>
       <tr><td><kbd>Space</kbd></td><td>Pump the board (one stroke per press)</td></tr>
-      <tr><td><kbd>K</kbd> or <kbd>Shift</kbd></td><td>Ding the wing (one wing pump per press)</td></tr>
-      <tr><td><kbd>P</kbd> / <kbd>Esc</kbd> · <kbd>R</kbd></td><td>Pause · restart</td></tr>
+      <tr><td><kbd>K</kbd> or <kbd>J</kbd> (<kbd>X</kbd> with arrows)</td><td>Ding the wing (one wing pump per press)</td></tr>
+      <tr><td><kbd>P</kbd> / <kbd>Esc</kbd> · <kbd>R</kbd> · <kbd>M</kbd></td><td>Pause · restart · sound on/off</td></tr>
     </table>
     <p class="sub touch-only"><b>FWD</b> / <b>BACK</b> lean, <b>◀ ▶</b> balance roll, <b>PUMP</b> the
       board and <b>DING</b> the wing — one tap per stroke.</p>
@@ -215,6 +216,7 @@
     dt: 1 / 120,                 // fixed simulation step
     sessionSeconds: 120,         // length of one session
     maxFrame: 0.1,               // longest real frame the loop will catch up on
+    maxCanvasPixels: 4.2e6,      // backing-store budget; caps the pixel ratio on big screens
 
     mass: 90,                    // rider + board + wing
     gravity: 9.81,
@@ -247,8 +249,8 @@
 
     rollLimit: 0.6,              // roll past this is a wipeout
     rollAuthority: 3,            // roll acceleration from full weight shift
-    rollDamping: 2,              // roll damping while flying
-    rollInputRate: 6,            // how fast the weight shift follows the keys
+    rollDamping: 3,              // roll damping while flying
+    rollInputRate: 10,           // how fast the weight shift follows the keys
     waterRollStiffness: 25,      // the hull's roll stability while on the water
     waterRollDamping: 7,
 
@@ -276,15 +278,18 @@
 
     takeoffHeight: 0.03,         // hull clear of the water by this much = flying
     minFlight: 3,                // flights shorter than this don't count
-    noseDivePitch: -0.12,        // touching down this nose-down…
+    noseDivePitch: -0.14,        // touching down this nose-down…
     noseDiveSpeed: 3.5,          // …this fast catches the nose: a wipeout
-    crashPause: 1.6,             // seconds in the water after a wipeout
-    respawnSpeed: 0.5,
+    warnAheadHeight: 0.45,       // seconds of look-ahead for the breach warning
+    warnAheadNose: 0.9,          // …for the nose-dive warning
+    warnAheadRoll: 0.5,          // …for the roll warning
+    crashPause: 1.3,             // seconds in the water after a wipeout
+    respawnSpeed: 1.5,           // a water start: the wing pulls you up already moving
 
     difficulties: {
       chill:  { label: 'Chill',  windBase: 5.6, gustAmp: 0.8, rollInstability: 1.0, rollAssist: 3.5, chop: 0.4 },
-      normal: { label: 'Normal', windBase: 5.0, gustAmp: 1.2, rollInstability: 2.4, rollAssist: 0,   chop: 1.0 },
-      gnarly: { label: 'Gnarly', windBase: 4.4, gustAmp: 1.6, rollInstability: 2.8, rollAssist: 0,   chop: 1.6 }
+      normal: { label: 'Normal', windBase: 5.0, gustAmp: 1.2, rollInstability: 2.2, rollAssist: 0,   chop: 1.0 },
+      gnarly: { label: 'Gnarly', windBase: 4.4, gustAmp: 1.6, rollInstability: 2.8, rollAssist: 0,   chop: 1.4 }
     },
 
     storageKey: 'wingding.best.v1'
@@ -330,6 +335,7 @@
       diff: diff, seed: seed, rng: rng,
       t: 0, x: 0, v: CONFIG.respawnSpeed,
       h: 0, hd: 0,              // hull height above the water, and its rate
+      hdAvg: 0,                 // heave rate smoothed over pump strokes (for warnings)
       th: 0, thd: 0,            // pitch (nose up +)
       phi: 0, phid: 0,          // roll (right side down +)
       lean: 0, rollIn: 0,
@@ -396,7 +402,7 @@
   function respawn(s) {
     s.crash = null;
     s.v = CONFIG.respawnSpeed;
-    s.h = 0; s.hd = 0; s.th = 0; s.thd = 0; s.phi = 0; s.phid = 0;
+    s.h = 0; s.hd = 0; s.hdAvg = 0; s.th = 0; s.thd = 0; s.phi = 0; s.phid = 0;
     s.lean = 0; s.rollIn = 0;
     s.ding.combo = 0; s.pump.combo = 0; s.ding.t0 = -99; s.pump.t0 = -99;
     s.stamina = Math.max(s.stamina, 0.5);
@@ -487,6 +493,7 @@
     var wasFlying = s.flying, thAtImpact = s.th;
     s.h += s.hd * dt;
     if (s.h < 0) { s.h = 0; s.hd = 0; N = Math.max(N, -Fv); }
+    s.hdAvg += (s.hd - s.hdAvg) * Math.min(1, dt / 0.3);
     var touching = s.h <= 0;
     var load = N / W;
     var dHull = touching ? load * (C.hullDragQuad * v * v + C.hullDragLin * v) + C.wettedDrag * v : 0;
@@ -542,7 +549,7 @@
     KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back',
     KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right'
   };
-  var TAP = { Space: 'pump', KeyK: 'ding', ShiftLeft: 'ding', ShiftRight: 'ding' };
+  var TAP = { Space: 'pump', KeyK: 'ding', KeyJ: 'ding', KeyX: 'ding' };
 
   var held = { fwd: false, back: false, left: false, right: false };
   var touchHeld = { fwd: false, back: false, left: false, right: false };
@@ -562,6 +569,86 @@
     };
   }
   function tap(kind) { if (game.state === 'PLAYING' && game.sim && !game.sim.crash) queued.push(kind); }
+
+  // ---------------------------------------------------------------------------
+  // Sound. Synthesised on the fly (no assets): a whoosh per wing pump that rises
+  // with the rhythm streak, a thump per board pump, chimes and splashes, and a
+  // water hiss / foil hum that follow the board. Starts on the first ride (a
+  // user gesture), M mutes, and the choice is remembered.
+  // ---------------------------------------------------------------------------
+  var sfx = (function () {
+    var ac = null, master = null, noiseBuf = null, hiss = null, hum = null;
+    var muted = false;
+    try { muted = localStorage.getItem(CONFIG.storageKey + '.muted') === '1'; } catch (e) { /* private mode */ }
+
+    function init() {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try {
+        ac = new AC();
+        master = ac.createGain(); master.gain.value = muted ? 0 : 0.6; master.connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+        var d = noiseBuf.getChannelData(0);
+        for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        // continuous beds: hull hiss (filtered noise) and foil hum (soft sine)
+        var src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+        var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+        hiss = ac.createGain(); hiss.gain.value = 0;
+        src.connect(lp); lp.connect(hiss); hiss.connect(master); src.start();
+        var osc = ac.createOscillator(); osc.type = 'sine'; osc.frequency.value = 160;
+        hum = ac.createGain(); hum.gain.value = 0;
+        osc.connect(hum); hum.connect(master); osc.start();
+        hum.osc = osc;
+      } catch (e) { ac = null; }
+    }
+    function noise(dur, type, f0, f1, gain, q) {
+      var t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = noiseBuf; f.type = type; f.Q.value = q || 1;
+      f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.35);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master);
+      src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
+    }
+    function tone(type, f0, f1, dur, gain, delay) {
+      var t = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+    }
+    function play(ev) {
+      if (!ac || muted) return;
+      try {
+        if (ev.type === 'ding') noise(0.36, 'bandpass', 500 + 90 * ev.combo, 1300 + 160 * ev.combo, 0.7 * Math.min(1, ev.e), 1.2);
+        else if (ev.type === 'pump') { tone('sine', 95, 50, 0.22, 0.5 * Math.min(1, ev.e)); noise(0.08, 'lowpass', 2000, 600, 0.08); }
+        else if (ev.type === 'takeoff') { tone('triangle', 660, 660, 0.18, 0.18); tone('triangle', 990, 990, 0.3, 0.18, 0.12); }
+        else if (ev.type === 'touchdown') noise(0.35, 'lowpass', 2400, 500, 0.3);
+        else if (ev.type === 'crash') { noise(0.9, 'lowpass', 3000, 300, 0.55); tone('sine', 120, 40, 0.4, 0.4); }
+      } catch (e) { /* never let sound break the game */ }
+    }
+    // follow the board: hiss while the hull drags, hum while the foil flies
+    function update(s, live) {
+      if (!ac) return;
+      var t = ac.currentTime;
+      var h = live && s && !s.crash && s.h <= 0.005 ? Math.min(0.12, s.v * 0.03) : 0;
+      var m = live && s && s.flying ? Math.min(0.05, s.v * 0.007) : 0;
+      hiss.gain.setTargetAtTime(h, t, 0.08);
+      hum.gain.setTargetAtTime(m, t, 0.15);
+      if (s) hum.osc.frequency.setTargetAtTime(120 + s.v * 22, t, 0.2);
+    }
+    function setMuted(on) {
+      muted = !!on;
+      try { localStorage.setItem(CONFIG.storageKey + '.muted', muted ? '1' : '0'); } catch (e) { /* private mode */ }
+      if (master) master.gain.setTargetAtTime(muted ? 0 : 0.6, ac.currentTime, 0.02);
+    }
+    return {
+      init: init, play: play, update: update, setMuted: setMuted,
+      get muted() { return muted; },
+      get state() { return ac ? ac.state : 'off'; }
+    };
+  })();
 
   // ---------------------------------------------------------------------------
   // Game shell: title → playing ⇄ paused → results
@@ -599,6 +686,7 @@
 
   function start(diff, seed) {
     if (diff) setDiff(diff);
+    sfx.init();
     var sd = seed != null ? seed : (game.seed != null ? game.seed : (Date.now() & 0x7fffffff));
     game.sim = newSim(game.diff, sd);
     game.state = 'PLAYING';
@@ -609,7 +697,7 @@
     queued.length = 0;
     clearHeld();
     show('title', false); show('pause', false); show('results', false);
-    toast('Pump to get up on foil', '#fff', 2.5);
+    toast(document.body.classList.contains('touch') ? 'Tap DING and PUMP in a steady rhythm' : 'Pump in rhythm: K wing · Space board', '#fff', 3);
   }
 
   function pause(on) {
@@ -657,6 +745,7 @@
   function handleEvents(s) {
     for (var i = 0; i < s.events.length; i++) {
       var ev = s.events[i];
+      sfx.play(ev);
       if (ev.type === 'takeoff') toast(s.takeoffs === 1 ? 'Up on foil!' : 'Flying', '#bfffd9', 1.2);
       else if (ev.type === 'touchdown') { toast(ev.flight >= CONFIG.minFlight ? 'Touchdown · ' + Math.round(ev.flight) + ' m' : 'Touchdown', '#fff', 1.4); splash(s, 14); }
       else if (ev.type === 'crash') { toast(CRASH_TEXT[ev.reason], '#ffd0c9', CONFIG.crashPause); splash(s, 30); }
@@ -679,7 +768,11 @@
   // keyboard
   window.addEventListener('keydown', function (e) {
     var code = e.code;
+    // a focused menu button handles its own Enter/Space (keyboard navigation)
+    if (game.state !== 'PLAYING' && e.target && e.target.tagName === 'BUTTON' &&
+        (code === 'Enter' || code === 'NumpadEnter' || code === 'Space')) return;
     if (HOLD[code] || TAP[code]) e.preventDefault();
+    if (code === 'KeyM' && !e.repeat) { sfx.setMuted(!sfx.muted); toast(sfx.muted ? 'Sound off' : 'Sound on', '#fff', 0.9); return; }
     if (game.state === 'TITLE') {
       if (code === 'Enter' || code === 'NumpadEnter') { e.preventDefault(); start(); }
       else if (code === 'Digit1' || code === 'Numpad1') setDiff('chill');
@@ -716,19 +809,16 @@
   // buttons
   var diffButtons = document.querySelectorAll('.diffs button');
   for (var bi = 0; bi < diffButtons.length; bi++) {
-    diffButtons[bi].addEventListener('click', function () { setDiff(this.dataset.diff); });
+    diffButtons[bi].addEventListener('click', function (e) {
+      setDiff(this.dataset.diff);
+      if (e.detail === 0) $('startBtn').focus();   // chosen from the keyboard: Ride is next
+    });
   }
   $('startBtn').addEventListener('click', function () { start(); });
   $('resumeBtn').addEventListener('click', function () { pause(false); });
   $('quitBtn').addEventListener('click', toTitle);
   $('againBtn').addEventListener('click', function () { start(); });
   $('titleBtn').addEventListener('click', toTitle);
-  // buttons should not steal Space/Enter from the game once clicked
-  var allButtons = document.querySelectorAll('button');
-  for (var ai = 0; ai < allButtons.length; ai++) {
-    allButtons[ai].addEventListener('keydown', function (e) { if (e.code === 'Space' || e.code === 'Enter') e.preventDefault(); });
-    allButtons[ai].addEventListener('mouseup', function () { this.blur(); });
-  }
 
   // touch pads
   if (window.matchMedia && matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
@@ -766,9 +856,10 @@
   var FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
   function resize() {
-    view.dpr = Math.min(2, window.devicePixelRatio || 1);
     view.w = window.innerWidth;
     view.h = window.innerHeight;
+    // sharp on phones and laptops, but no more than ~4 megapixels of canvas on big screens
+    view.dpr = Math.min(2, window.devicePixelRatio || 1, Math.max(1, Math.sqrt(CONFIG.maxCanvasPixels / (view.w * view.h))));
     canvas.width = Math.round(view.w * view.dpr);
     canvas.height = Math.round(view.h * view.dpr);
     var touch = document.body.classList.contains('touch');
@@ -853,6 +944,23 @@
     return { ppm: ppm, waterY: H * 0.58, originX: W * 0.36 };
   }
 
+  // gradients depend only on the screen size: build them once per size
+  var grads = { key: '' };
+  function gradients(W, H, waterY, sunX, sunY, sunR) {
+    var key = W + 'x' + H;
+    if (grads.key === key) return grads;
+    grads.key = key;
+    grads.sky = ctx.createLinearGradient(0, 0, 0, waterY);
+    grads.sky.addColorStop(0, '#3f9fd3'); grads.sky.addColorStop(0.6, '#8ccbe8'); grads.sky.addColorStop(1, '#dff1f7');
+    grads.glow = ctx.createRadialGradient(sunX, sunY, sunR * 0.6, sunX, sunY, sunR * 4);
+    grads.glow.addColorStop(0, 'rgba(255, 248, 220, 0.55)'); grads.glow.addColorStop(1, 'rgba(255, 248, 220, 0)');
+    grads.sea = ctx.createLinearGradient(0, waterY, 0, H);
+    grads.sea.addColorStop(0, 'rgba(38, 150, 186, 0.55)');
+    grads.sea.addColorStop(0.25, 'rgba(16, 98, 140, 0.78)');
+    grads.sea.addColorStop(1, 'rgba(6, 34, 60, 0.96)');
+    return grads;
+  }
+
   function render() {
     var s = game.state === 'TITLE' || !game.sim ? demo : game.sim;
     var W = view.w, H = view.h, dpr = view.dpr;
@@ -868,13 +976,10 @@
     var i, x;
 
     // sky and sun
-    var g = ctx.createLinearGradient(0, 0, 0, waterY);
-    g.addColorStop(0, '#3f9fd3'); g.addColorStop(0.6, '#8ccbe8'); g.addColorStop(1, '#dff1f7');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, waterY + 2);
     var sunX = W * 0.8, sunY = H * 0.14, sunR = Math.max(16, H * 0.04);
-    var glow = ctx.createRadialGradient(sunX, sunY, sunR * 0.6, sunX, sunY, sunR * 4);
-    glow.addColorStop(0, 'rgba(255, 248, 220, 0.55)'); glow.addColorStop(1, 'rgba(255, 248, 220, 0)');
-    ctx.fillStyle = glow; ctx.fillRect(sunX - sunR * 4, sunY - sunR * 4, sunR * 8, sunR * 8);
+    var gr = gradients(W, H, waterY, sunX, sunY, sunR);
+    ctx.fillStyle = gr.sky; ctx.fillRect(0, 0, W, waterY + 2);
+    ctx.fillStyle = gr.glow; ctx.fillRect(sunX - sunR * 4, sunY - sunR * 4, sunR * 8, sunR * 8);
     ctx.fillStyle = '#fff8dc';
     ctx.beginPath(); ctx.arc(sunX, sunY, sunR, 0, 7); ctx.fill();
 
@@ -928,11 +1033,7 @@
     drawRig(s, sx, sy, ppm);
 
     // the sea, drawn over the underwater part of the rig so it reads as submerged
-    var sea = ctx.createLinearGradient(0, waterY, 0, H);
-    sea.addColorStop(0, 'rgba(38, 150, 186, 0.55)');
-    sea.addColorStop(0.25, 'rgba(16, 98, 140, 0.78)');
-    sea.addColorStop(1, 'rgba(6, 34, 60, 0.96)');
-    ctx.fillStyle = sea;
+    ctx.fillStyle = gr.sea;
     ctx.beginPath(); ctx.moveTo(0, H);
     for (x = 0; x <= W + 8; x += 8) ctx.lineTo(x, sy(waveY(camX + (x - originX) / ppm, t, chop)));
     ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
@@ -1156,16 +1257,33 @@
     return h;
   }
 
-  // the one coaching line the HUD shows, most urgent first
+  // the one coaching line the HUD shows. Flight warnings look ahead (where height
+  // and roll are heading) so they come early enough to act on, stay quiet while
+  // the rider is already doing the right thing, and the soonest failure wins.
   function warning(s) {
     var C = CONFIG;
     if (!s || s.crash) return null;
-    if (s.flying && s.depth < C.breachDepth + 0.1) return 'Too high — lean forward';
-    if (Math.abs(s.phi) > C.rollLimit * 0.6) return s.phi > 0 ? 'Falling right — shift left' : 'Falling left — shift right';
+    if (s.flying) {
+      var best = null, soonest = Infinity;
+      var consider = function (text, t) { if (t < soonest) { soonest = t; best = text; } };
+      var top = C.mastLength - C.breachDepth;
+      if (s.depth < C.breachDepth + 0.08) consider('Too high — lean forward', 0);
+      else if (s.h + C.warnAheadHeight * s.hdAvg > top - 0.04 && s.lean < 0.5) consider('Too high — lean forward', (top - s.h) / Math.max(0.05, s.hdAvg));
+      var rollAhead = s.phi + C.warnAheadRoll * s.phid, worst = Math.abs(rollAhead) > Math.abs(s.phi) ? rollAhead : s.phi;
+      if (Math.abs(worst) > C.rollLimit * 0.5 && worst * s.rollIn > -0.5 * Math.abs(worst)) {
+        var toward = s.phid * (worst > 0 ? 1 : -1);
+        consider(worst > 0 ? 'Falling right — shift left' : 'Falling left — shift right',
+                 (C.rollLimit - Math.abs(s.phi)) / Math.max(0.05, toward));
+      }
+      if (s.v > C.noseDiveSpeed && s.lean > 0.3 && s.th < 0.6 * C.noseDivePitch && s.h + C.warnAheadNose * s.hdAvg < 0.02) {
+        consider('Nose down — ease off', s.h / Math.max(0.05, -s.hdAvg));
+      }
+      if (best) return best;
+    }
     if (s.stalled && s.v > 1) return 'Stalling — lean forward';
-    if (s.flying && s.h < 0.15 && s.th < -0.07 && s.v > C.noseDiveSpeed) return 'Nose down — ease off';
     if (s.stamina < 0.15) return 'Exhausted — glide a moment';
     if ((s.ding.mashed && s.t - s.ding.last < 1) || (s.pump.mashed && s.t - s.pump.last < 1)) return 'Too fast — pump in a steady rhythm';
+    if (!s.flying && s.v > 2.8 && s.lean > -0.3) return 'Lean back to lift off';
     return null;
   }
 
@@ -1219,7 +1337,7 @@
     text(Math.round(s.total) + ' m', r.x + 12, r.y + 51, 30, 800, '#fff');
     label(s.flying ? 'Flight' : (s.crash ? 'Wiped out' : 'On water'), r.x + r.w - 12, r.y + 18, 'right');
     if (s.flying) text(Math.round(s.flight) + ' m', r.x + r.w - 12, r.y + 38, 15, 700, '#bfffd9', 'right');
-    text('best ' + (game.best[s.diff] || 0) + ' m', r.x + r.w - 12, r.y + 55, 11, 600, 'rgba(255,255,255,0.7)', 'right');
+    text('best ' + (game.best[s.diff] ? game.best[s.diff] + ' m' : '—'), r.x + r.w - 12, r.y + 55, 11, 600, 'rgba(255,255,255,0.7)', 'right');
 
     // ride height (the mast, from touchdown to breach) and lean
     r = L.height; panel(r.x, r.y, r.w, r.h);
@@ -1323,6 +1441,7 @@
       game.acc -= n * CONFIG.dt;
       advance(n);
     }
+    sfx.update(game.sim, game.state === 'PLAYING');
     render();
     requestAnimationFrame(frame);
   }
@@ -1344,6 +1463,8 @@
     get held() { var o = {}; for (var k in held) o[k] = isHeld(k); return o; },
     get queued() { return queued.slice(); },
     get warning() { return warning(game.sim); },
+    get muted() { return sfx.muted; },
+    get audio() { return sfx.state; },
     // the HUD's panels in CSS pixels, for layout checks
     get hud() {
       var L = hudLayout(view.w, view.h), out = {};
@@ -1358,7 +1479,8 @@
     seconds: function (sec) { if (game.state === 'PLAYING') advance(Math.round(sec / CONFIG.dt)); return game.sim; },
     setSeed: function (seed) { game.seed = seed; },
     newSim: newSim,
-    stepSim: stepSim
+    stepSim: stepSim,
+    warningFor: warning
   };
 })();
 </script>

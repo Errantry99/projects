@@ -42,10 +42,11 @@ Pump the wing and the board to get up on foil, then keep it flying.
 | `W` `S` / `↑` `↓` | lean forward / back (nose down / up) |
 | `A` `D` / `←` `→` | shift weight left / right (roll balance) |
 | `Space` | pump the board, one stroke per press |
-| `K` / `Shift` | ding (pump) the wing, one stroke per press |
-| `P` / `Esc`, `R`, `Q` | pause, restart, quit to title (from pause) |
+| `K` / `J` (`X` with arrows) | ding (pump) the wing, one stroke per press |
+| `P` / `Esc`, `R`, `Q`, `M` | pause, restart, quit to title (from pause), sound on/off |
 
-Phones get on-screen pads.
+Phones get on-screen pads, and they work multi-touch, so you can hold a lean
+while you pump. The menus work with Tab, Space and Enter.
 
 - **Physics, abbreviated.** A 2D side view with a fixed 120 Hz step. The front
   wing's lift goes with speed² × angle of attack and stalls past ~14°. Sinking
@@ -56,6 +57,13 @@ Phones get on-screen pads.
 - **Pumping.** Each press is one stroke with a force pulse. Strokes pressed
   faster than the stroke length come out weak (mashing doesn't work). A steady
   interval builds a rhythm bonus, and every stroke costs stamina.
+- **Coaching.** One line at a time, picking whichever failure is coming
+  soonest. Warnings look ahead (where height and roll are heading), so a roll
+  warning comes about a second before the fall. They stay quiet while you are
+  already correcting. Before takeoff the line coaches the basics: rhythm, and
+  leaning back to lift off.
+- **Sound.** Synthesised in the page. The wing whoosh rises with your rhythm
+  streak, board pumps thump, and the water hiss and foil hum follow the board.
 - **Wipeouts.** The foil breaches (too high), you catch the nose (touch down
   nose-down at speed), or the board rolls over. Touching down gently just ends
   the flight.
@@ -75,4 +83,6 @@ SHOTS=shots node wingding.qa.mjs     # …and save screenshots
 
 Every check sends real key presses (or taps). Keyed sequences run on the
 paused fixed-step clock, so every run is deterministic. One closed-loop
-keyboard rider plays a whole session and has to score.
+keyboard rider plays a whole session and has to score. The suite also covers
+warning lead time and noise, measured sound output, multi-touch, keyboard
+navigation of the menus, and HUD layout on five screen sizes.

@@ -71,7 +71,7 @@ const snap = (page) => page.evaluate(() => {
            lean: s.lean, rollIn: s.rollIn, stamina: s.stamina, flying: s.flying, crash: s.crash && s.crash.reason,
            total: s.total, longest: s.longest, takeoffs: s.takeoffs, crashes: s.crashes, reasons: s.crashReasons.slice(),
            dingCombo: s.ding.combo, pumpCombo: s.pump.combo, dings: s.ding.count, pumps: s.pump.count,
-           depth: s.depth, over: s.over, state: wingding.state };
+           depth: s.depth, over: s.over, state: wingding.state, warning: wingding.warning };
 });
 const steps = (page, n) => page.evaluate((k) => { wingding.step(k); }, n);
 
@@ -152,6 +152,12 @@ section('W1 — page, title screen and session shell');
   check('1 picks Chill', await page.evaluate(() => wingding.diff) === 'chill' &&
         await page.locator('[data-diff=chill]').getAttribute('aria-pressed') === 'true' &&
         await page.locator('[data-diff=gnarly]').getAttribute('aria-pressed') === 'false');
+  // keyboard navigation: Tab to a condition, Space picks it, Enter on Ride starts
+  for (let i = 0; i < 8 && await page.evaluate(() => document.activeElement.dataset.diff) !== 'gnarly'; i++) await page.keyboard.press('Tab');
+  await page.keyboard.press('Space');
+  check('Tab + Space picks a condition from the keyboard', await page.evaluate(() => wingding.diff) === 'gnarly' &&
+        await page.evaluate(() => document.activeElement.id) === 'startBtn', await page.evaluate(() => wingding.diff + ' / focus ' + document.activeElement.id));
+  check('the focused button shows a focus ring', await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle) === 'solid');
   await page.keyboard.press('Digit2');
 
   await page.keyboard.press('Enter');
@@ -159,6 +165,14 @@ section('W1 — page, title screen and session shell');
   check('Enter starts a session', await page.evaluate(() => wingding.state) === 'PLAYING');
   check('the title closes', await page.locator('#title').isHidden());
   check('the session is on Normal', await page.evaluate(() => wingding.sim.diff) === 'normal');
+  check('sound starts with the ride', ['running', 'suspended'].includes(await page.evaluate(() => wingding.audio)),
+        await page.evaluate(() => wingding.audio));
+  const wasMuted = await page.evaluate(() => wingding.muted);
+  await page.keyboard.press('KeyM');
+  check('M toggles sound', await page.evaluate(() => wingding.muted) === !wasMuted);
+  check('…and remembers it', await page.evaluate(() => localStorage.getItem('wingding.best.v1.muted')) === (!wasMuted ? '1' : '0'));
+  await page.keyboard.press('KeyM');
+  check('M toggles it back', await page.evaluate(() => wingding.muted) === wasMuted);
 
   // game keys must not scroll or click anything: the page swallows them
   const prevented = await page.evaluate(() => {
@@ -250,22 +264,24 @@ section('W2 — keys reach the rider (manual clock)');
   await steps(page, 1);
   s = await snap(page);
   check('the pump happens on the next step', s.pumps === 1 && (await page.evaluate(() => wingding.queued)).length === 0);
-  await page.keyboard.press('KeyK');
-  await steps(page, 1);
+  for (const k of ['KeyK', 'KeyJ', 'KeyX']) { await page.keyboard.press(k); await steps(page, 1); }
+  s = await snap(page);
+  check('K, J and X each ding the wing', s.dings === 3, String(s.dings));
+  // Shift is not a game key: tapping it in rhythm opens Sticky Keys on Windows
   await page.keyboard.press('ShiftLeft');
   await steps(page, 1);
-  s = await snap(page);
-  check('K and Shift each ding the wing', s.dings === 2, String(s.dings));
+  check('Shift does nothing', (await snap(page)).dings === 3);
 
   // holding a pump key: auto-repeat must not pump again
   await steps(page, 120);
+  const pumpsBefore = (await snap(page)).pumps;
   await page.keyboard.down('Space');
   await page.keyboard.down('Space');   // auto-repeat
   await page.keyboard.down('Space');
   await page.keyboard.up('Space');
   await steps(page, 1);
   s = await snap(page);
-  check('auto-repeat of a held Space is ignored', s.pumps === 2, String(s.pumps));
+  check('auto-repeat of a held Space is ignored', s.pumps === pumpsBefore + 1, pumpsBefore + ' → ' + s.pumps);
 
   // stroke shape: a ding is a pulse of thrust, not a step
   await steps(page, 120);
@@ -290,8 +306,21 @@ section('W3 — getting up: rhythm beats mashing (keyed sequences)');
   // nothing pressed: the wing alone drifts you along, never up on foil
   await startManual(page);
   let { s } = await drive(page, 12, () => ({ tap: [] }));
+  let r0, await0;
   check('with no input the board stays on the water', s.takeoffs === 0 && s.h === 0, 'v ' + f2(s.v));
   check('…drifting slowly under the wing alone', s.v > 0.6 && s.v < 1.6, f2(s.v) + ' m/s');
+
+  // pumping well but never leaning back: the HUD coaches the missing piece
+  await startManual(page);
+  r0 = await drive(page, 12, (st, m) => {
+    const tap = [];
+    if (st.t - (m.k ?? -9) >= 0.549) { tap.push('KeyK'); m.k = st.t; }
+    if (st.t - (m.p ?? -9) >= 0.649) { tap.push('Space'); m.p = st.t; }
+    return { tap };
+  });
+  check('pumping without leaning back never takes off', r0.s.takeoffs === 0, 'v ' + f2(r0.s.v));
+  check('…and the HUD says to lean back', await page.evaluate(() => wingding.warning) === 'Lean back to lift off',
+        String(await page.evaluate(() => wingding.warning)));
 
   // leaning back alone does nothing useful either
   await startManual(page);
@@ -363,10 +392,14 @@ section('W4 — balance on the foil: height, pitch and roll');
   check('…keeping roll small', Math.max(...r.trace.map(x => Math.abs(x.phi))) < 0.25,
         f2(Math.max(...r.trace.map(x => Math.abs(x.phi)))) + ' rad');
 
+  // warnings come early, and stay quiet while riding well
+  const shown = r.trace.filter(x => x.warning).length / r.trace.length;
+  check('balanced riding is not nagged (warnings < 25% of the time)', shown < 0.25, Math.round(shown * 100) + '%');
+
   // lean back and hold it: the foil climbs out of the water
   r = await drive(page, 6, (st) => ({ lean: 'KeyS', roll: rider()(st, {}).roll, tap: [] }));
   check('holding S climbs until the foil breaches', r.s.reasons.includes('breach'), r.s.reasons.join(','));
-  check('…and the HUD warned first', r.trace.some(x => x.flying && x.depth < 0.16));
+  check('…and the HUD warned first', r.trace.some(x => x.warning === 'Too high — lean forward'));
 
   // pumping hard with no forward lean: speed raises the nose until it breaches
   await airborne();
@@ -398,6 +431,10 @@ section('W4 — balance on the foil: height, pitch and roll');
   await airborne();
   r = await drive(page, 12, rider({ noRoll: true }), 0.05, (x) => x.crash);
   check('without roll balance it rolls over on Normal', r.s.crash === 'roll', r.s.crash || 'no crash');
+  const crashT = r.s.t;
+  let lead = 0;
+  for (let i = r.trace.length - 2; i >= 0 && r.trace[i].warning && r.trace[i].warning.startsWith('Falling'); i--) lead = crashT - r.trace[i].t;
+  check('…after a roll warning with time to react (≥ 0.5 s)', lead >= 0.5, lead.toFixed(2) + ' s');
 
   // keys pressed while swimming back to the board do nothing
   const crashAt = r.s;
@@ -494,6 +531,43 @@ section('W6 — the real-time loop, with real key timing');
 }
 
 // ---------------------------------------------------------------------------
+section('W6b — sound you can hear');
+{
+  const page = await browser.newPage();
+  const errs = [];
+  page.on('pageerror', e => errs.push(String(e)));
+  await page.addInitScript(() => {
+    // route everything the page plays through an analyser the check can read
+    const Real = window.AudioContext;
+    window.AudioContext = class extends Real {
+      constructor(...a) { super(...a); this._an = super.createAnalyser(); this._an.fftSize = 2048; this._an.connect(super.destination); window.__an = this._an; }
+      get destination() { return this._an; }
+    };
+  });
+  await page.goto(FILE);
+  await page.waitForTimeout(200);
+  await page.evaluate(() => { try { localStorage.removeItem('wingding.best.v1.muted'); } catch (e) {} });
+  await page.keyboard.press('Enter');
+  const level = () => page.evaluate(() => {
+    const a = window.__an, d = new Float32Array(a.fftSize); a.getFloatTimeDomainData(d);
+    let s = 0; for (const x of d) s += x * x; return Math.sqrt(s / d.length);
+  });
+  await page.waitForTimeout(400);
+  const bed = await level();
+  await page.keyboard.press('KeyK');
+  await page.waitForTimeout(120);
+  const ding = await level();
+  check('a wing pump is audible over the water', ding > bed * 1.5 && ding > 0.005, 'rms ' + ding.toFixed(4) + ' vs ' + bed.toFixed(4));
+  await page.keyboard.press('KeyM');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('KeyK');
+  await page.waitForTimeout(120);
+  check('muted means silent', (await level()) < 1e-4);
+  check('no page errors', errs.length === 0, errs.join(' | '));
+  await page.close();
+}
+
+// ---------------------------------------------------------------------------
 section('W7 — phone: touch pads and a narrow screen');
 {
   const { page, errs } = await open(browser, { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
@@ -513,6 +587,19 @@ section('W7 — phone: touch pads and a narrow screen');
   check('holding BACK leans back', await page.evaluate(() => wingding.held.back));
   await page.mouse.up();
   check('releasing it lets go', await page.evaluate(() => !wingding.held.back));
+
+  // two fingers: hold BACK with one, tap PUMP with the other
+  const cdp = await page.context().newCDPSession(page);
+  const centre = async (sel) => { const b = await page.locator(sel).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+  const backAt = await centre('[data-hold=back]'), pumpAt = await centre('[data-tap=pump]');
+  const before = (await snap(page)).pumps;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...backAt, id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...backAt, id: 1 }, { ...pumpAt, id: 2 }] });
+  await steps(page, 1);
+  check('multi-touch: PUMP taps while BACK is held', await page.evaluate(() => wingding.held.back) && (await snap(page)).pumps === before + 1,
+        'held ' + await page.evaluate(() => wingding.held.back) + ', pumps ' + before + ' → ' + (await snap(page)).pumps);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  check('…and lifting the BACK finger lets go', await page.evaluate(() => !wingding.held.back));
   if (SHOTS) {
     await page.evaluate(() => { wingding.manual = false; });
     await page.waitForTimeout(300);
