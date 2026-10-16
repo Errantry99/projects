@@ -109,33 +109,172 @@ def speak_word(word, voice):
     return _words[key]
 
 
-def sing_word(word, notes, dur, voice, keep=0.3, cents=0.0):
-    """Sing one word on `notes` across ~`dur` s. Returns (signal, seconds before its vowel)."""
+def mfcc(snd):
+    """CMVN-normalised MFCC frames (5 ms hop) and the time of frame 0."""
     from parselmouth.praat import call
-    snd, ts, f = speak_word(word, voice)
+    mf = call(snd, "To MFCC", 12, 0.015, 0.005, 100.0, 100.0, 0.0)
+    v = call(mf, "To Matrix").values.T
+    v = (v - v.mean(0)) / (v.std(0) + 1e-6)
+    return v, call(mf, "Get time from frame number", 1)
+
+
+def dtw_path(a, b):
+    """Dynamic time warping between two feature sequences; returns matched (i, j) pairs."""
+    cost = np.sqrt(((a[:, None, :] - b[None, :, :]) ** 2).sum(-1))
+    n, m = cost.shape
+    acc = np.full((n + 1, m + 1), np.inf)
+    acc[0, 0] = 0
+    for i in range(1, n + 1):
+        row, prev = acc[i], acc[i - 1]
+        c = cost[i - 1]
+        diag = np.minimum(prev[:-1], prev[1:])  # best of up and diagonal
+        for j in range(1, m + 1):
+            row[j] = c[j - 1] + min(diag[j - 1], row[j - 1])
+    i, j, path = n, m, []
+    while i > 0 and j > 0:
+        path.append((i - 1, j - 1))
+        k = np.argmin([acc[i - 1, j - 1], acc[i - 1, j], acc[i, j - 1]])
+        i, j = (i - 1, j - 1) if k == 0 else (i - 1, j) if k == 1 else (i, j - 1)
+    return path[::-1]
+
+
+_lines = {}
+
+
+def speak_line(line, voice):
+    """Speak a whole line in one breath and find where each word starts in it.
+
+    Kokoro gives no timings, so the line is aligned (DTW over MFCCs) against
+    the same words spoken one by one, whose boundaries are known."""
+    from parselmouth import Sound
+    key = (line_text(line), voice)
+    if key in _lines:
+        return _lines[key]
+    lang = "en-gb" if voice.startswith("b") else "en-us"
+    text = " ".join(w.strip(",.!") for w, _, _ in line)  # no commas: a sung line doesn't pause
+    target = sum(b for _, _, b in line) * BEAT
+    x, sr = tts().create(text, voice=voice, speed=1.0, lang=lang)
+    speed = float(np.clip(len(x) / sr / (0.62 * target), 0.85, 1.25))  # leave room to hold the vowels
+    if abs(speed - 1) > 0.04:
+        x, sr = tts().create(text, voice=voice, speed=speed, lang=lang)
+    snd = Sound(x.astype(np.float64), sr)
+    env = np.convolve(np.abs(x), np.ones(240) / 240, "same")
+    on = np.nonzero(env > env.max() * 0.03)[0]
+    snd = snd.extract_part(on[0] / sr, min((on[-1] + 240) / sr, snd.duration))
+
+    refs = [speak_word(w, voice)[0] for w, _, _ in line]
+    bounds = np.cumsum([0] + [r.duration for r in refs])
+    ref = Sound(np.concatenate([r.values[0] for r in refs]), sr)
+    fa, ta = mfcc(ref)
+    fb, tb = mfcc(snd)
+    path = np.array(dtw_path(fa, fb))
+    starts = []
+    for k in range(len(line)):
+        i = int(np.clip(round((bounds[k] - ta) / 0.005), 0, len(fa) - 1))
+        js = path[path[:, 0] == i, 1]
+        starts.append(max(tb + js.min() * 0.005, 0.0) if len(js) else 0.0)
+    starts[0] = 0.0
+    for k in range(1, len(starts)):  # keep them in order with a little room
+        starts[k] = max(starts[k], starts[k - 1] + 0.04)
+    pitch = snd.to_pitch(0.01, 60, 400)
+    _lines[key] = (snd, np.array(starts), pitch.xs(), pitch.selected_array["frequency"])
+    return _lines[key]
+
+
+_phrases = {}
+
+
+def sing_phrase(line, voice, word_notes, keep=0.2):
+    """Sing a whole line legato: each word's vowel lands on its beat, on its note.
+
+    Returns (signal, seconds from the signal's start to the first beat)."""
+    from parselmouth.praat import call
+    key = (line_text(line), voice, tuple(map(tuple, word_notes)), keep)
+    if key in _phrases:
+        return _phrases[key]
+    snd, starts, ts, f = speak_line(line, voice)
+    f = f.copy()
     length = snd.duration
     voiced = f > 0
-    if not voiced.any():
-        return snd.values[0].copy(), 0.0
-    tv, fv = ts[voiced], f[voiced]
-    t_on, t_off = tv[0], tv[-1]
-    factor = float(np.clip(dur * 0.92 / length, 0.7, 1.7))
+    d = np.diff(np.concatenate([[1], voiced.astype(int), [1]]))
+    for a, b in zip(np.nonzero(d == -1)[0], np.nonzero(d == 1)[0]):  # patch pitch-tracker dropouts
+        if 0 < a and b < len(voiced) and b - a <= 8:
+            voiced[a:b] = True
+            f[a:b] = np.interp(ts[a:b], [ts[a - 1], ts[b]], [f[a - 1], f[b]])
+    # each word's vowel onset: its first voiced frame
+    vow = []
+    for k, s in enumerate(starts):
+        nxt = starts[k + 1] if k + 1 < len(starts) else length
+        idx = np.nonzero(voiced & (ts >= s) & (ts < nxt))[0]
+        vow.append(ts[idx[0]] if len(idx) else s)
+    vow = np.array(vow)
+    for k in range(1, len(vow)):
+        vow[k] = max(vow[k], vow[k - 1] + 0.04)
+    beats = np.cumsum([0] + [b * BEAT for _, _, b in line])
+
+    # duration factor on a 5 ms grid: from one vowel onset to the next must take
+    # exactly the beats between them; the stretch goes into the voiced sound
+    grid = np.arange(0, length, 0.005)
+    g_voiced = np.interp(grid, ts, voiced.astype(float), left=0, right=0) > 0.5
+    inten = snd.to_intensity(75, 0.005)
+    g_db = np.interp(grid, inten.xs(), inten.values[0], left=0, right=0)
+    g_pause = ~g_voiced & (g_db < g_db.max() - 32)  # the speaker's breath pauses, not consonants
+    factor = np.ones(len(grid))
+    seg_edges = list(vow) + [length]
+    for k in range(len(vow)):
+        a, b = seg_edges[k], seg_edges[k + 1]
+        sel = (grid >= a) & (grid < b)
+        src = sel.sum() * 0.005
+        want = (beats[k + 1] - beats[k]) * (0.93 if k == len(vow) - 1 else 1.0)
+        if src <= 0:
+            continue
+        v, u, p = sel & g_voiced, sel & ~g_voiced & ~g_pause, sel & g_pause
+        v_len, u_len, p_len = v.sum() * 0.005, u.sum() * 0.005, p.sum() * 0.005
+        if k == len(vow) - 1:  # the last word may trail off into silence
+            u, u_len, p_len = u | p, u_len + p_len, 0.0
+        factor[p] = 0.15  # sing straight through the pauses
+        rest = want - 0.15 * p_len
+        if rest >= v_len + u_len and v_len > 0:
+            fv = min((rest - u_len) / v_len, 12.0)  # hold the vowels
+            factor[v] = fv
+            factor[u] = max((rest - fv * v_len) / u_len, 1.0) if u_len > 0 else 1.0
+            if u_len == 0 and fv * v_len < rest and p_len > 0:
+                factor[p] = (want - fv * v_len) / p_len
+        else:
+            factor[sel & ~p] = max(rest / max(v_len + u_len, 1e-3), 0.45)
     manip = call(snd, "To Manipulation", 0.01, 60, 400)
+    dtier = call("Create DurationTier", "d", 0, length)
+    for gt, fac in zip(grid, factor):
+        call(dtier, "Add point", float(gt), float(fac))
+    call([manip, dtier], "Replace duration tier")
+
+    # pitch: each word on its note(s), gliding into the next, with a trace of speech
+    tv, fv_ = ts[voiced], f[voiced]
+    k_of = np.clip(np.searchsorted(vow, tv, side="right") - 1, 0, len(vow) - 1)
+    target = np.empty(len(tv))
+    for k in range(len(vow)):
+        sel = k_of == k
+        if not sel.any():
+            continue
+        notes = word_notes[k]
+        t_k = tv[sel]
+        frac = np.clip((t_k - t_k[0]) / max(t_k[-1] - t_k[0], 1e-3), 0, 0.999)
+        target[sel] = np.log2([midi_hz(notes[int(q * len(notes))]) for q in frac])
+    speech = np.log2(fv_)
+    speech -= np.polyval(np.polyfit(tv, speech, 1), tv)  # drop the spoken line's fall, keep its wobble
+    target += keep * np.clip(speech, -0.25, 0.25)  # at most a few semitones of spoken accent
+    target = np.convolve(np.pad(target, 2, mode="edge"), np.ones(5) / 5, "valid")  # ~40 ms glides
     tier = call(manip, "Extract pitch tier")
     call(tier, "Remove points between", 0, length)
-    frac = np.clip((tv - t_on) / max(t_off - t_on, 1e-3), 0, 0.999)
-    target = (np.log2([midi_hz(notes[int(q * len(notes))]) for q in frac])
-              + keep * np.log2(fv / np.median(fv)) + cents / 1200)  # keep a bit of speech
-    target = np.convolve(np.pad(target, 3, mode="edge"), np.ones(7) / 7, "valid")  # glide between notes
-    target -= 0.5 / 12 * np.exp(-(tv - t_on) / 0.04)  # a small scoop into the note
     for ti, lf in zip(tv, target):
         call(tier, "Add point", float(ti), float(2 ** lf))
     call([tier, manip], "Replace pitch tier")
-    dtier = call("Create DurationTier", "d", 0, length)
-    call(dtier, "Add point", 0, factor)
-    call([manip, dtier], "Replace duration tier")
     y = call(manip, "Get resynthesis (overlap-add)").values[0]
-    return y / (np.sqrt(np.mean(y ** 2)) + 1e-9) * 0.1, t_on * factor
+    y = y / (np.sqrt(np.mean(y[np.abs(y) > 1e-4] ** 2)) + 1e-9) * 0.1
+    # output time of the first vowel = time to the first beat
+    lead = float(np.sum(factor[grid < vow[0]]) * 0.005)
+    _phrases[key] = (y, lead)
+    return _phrases[key]
 
 
 D_MAJOR = sorted(p + 12 * o for o in range(1, 7) for p in (2, 4, 6, 7, 9, 11, 13))  # MIDI 14-85
@@ -203,22 +342,21 @@ def part_notes(part, notes, bar_root):
 
 
 def sing_line(line, start, singers, roots, n, left, right, rng):
-    t = start
-    for word, notes, beats in line:
-        d = beats * BEAT
-        root = roots[min(int((t / BEAT + 1e-6) // 4), len(roots) - 1)]
-        b = t / BEAT
-        accent = 1.0 if abs(b - 2 * round(b / 2)) < 1e-6 else 0.85  # lean on the stomps
-        for voice, part, dt, gain, pan in singers:
-            y, lead = sing_word(word, part_notes(part, notes, root), d, voice,
-                                keep=0.3 if part == "tune" else 0.15, cents=rng.normal(0, 4))
-            mono = to_sr(y) * gain * accent
-            at = t - lead + dt + rng.normal(0, 0.006)
-            i = int(max(at, 0) * SR)
-            j = min(i + len(mono), n)
-            left[i:j] += mono[: j - i] * np.sqrt((1 - pan) / 2)
-            right[i:j] += mono[: j - i] * np.sqrt((1 + pan) / 2)
-        t += d
+    """Every singer sings the whole line as one phrase, vowels on the beats."""
+    beat0 = start / BEAT
+    offs = np.cumsum([0] + [b for _, _, b in line])[:-1]
+    for voice, part, dt, gain, pan in singers:
+        word_notes = []
+        for (_, notes, _), o in zip(line, offs):
+            root = roots[min(int((beat0 + o + 1e-6) // 4), len(roots) - 1)]
+            word_notes.append(part_notes(part, notes, root))
+        y, lead = sing_phrase(line, voice, word_notes, keep=0.2 if part == "tune" else 0.1)
+        mono = to_sr(y) * gain
+        at = start - lead + dt + rng.normal(0, 0.004)
+        i = int(max(at, 0) * SR)
+        j = min(i + len(mono), n)
+        left[i:j] += mono[: j - i] * np.sqrt((1 - pan) / 2)
+        right[i:j] += mono[: j - i] * np.sqrt((1 + pan) / 2)
 
 
 def render_voices(lines, n):
@@ -282,8 +420,8 @@ def chord_bars(lines, n_bars):
     return bars
 
 
-def reed(freqs, dur):
-    """A squeezebox stab: detuned reed pairs, a little tremolo, a quick decay."""
+def reed(freqs, dur, sustain=False):
+    """Squeezebox reeds: detuned pairs with a little tremolo; a stab, or a held chord."""
     m = int(dur * SR)
     t = np.arange(m) / SR
     y = np.zeros(m)
@@ -291,12 +429,18 @@ def reed(freqs, dur):
         for det in (0.997, 1.003):
             ph = f * det * t
             y += (2 * (ph % 1) - 1) * 0.6 + np.sign(np.sin(2 * np.pi * ph)) * 0.4
-    env = np.clip(t / 0.01, 0, 1) * np.exp(-t / (dur * 0.6))
+    if sustain:  # the bellows open, hold and close
+        env = np.clip(t / 0.06, 0, 1) * np.clip((dur - t) / 0.12, 0, 1)
+    else:
+        env = np.clip(t / 0.01, 0, 1) * np.exp(-t / (dur * 0.6))
     return lp(y * env * (1 + 0.15 * np.sin(2 * np.pi * 6 * t)), 2600, 2) / len(freqs)
 
 
 def band(n, lines, start_beat, end_beat):
-    """Stomp on 1 and 3, claps on 2 and 4, an oom-pah squeezebox following the tune."""
+    """Stomp on 1 and 3, claps on 2 and 4, and a squeezebox holding the chords.
+
+    The squeezebox sustains each bar's chord, breathing with the beat, and walks
+    a legato bass (root, then fifth) underneath: it glues the voices together."""
     stomp_l, clap_l, box = np.zeros(n), np.zeros(n), np.zeros(n)
     hl = int(0.4 * SR)
     th = np.arange(hl) / SR
@@ -309,16 +453,20 @@ def band(n, lines, start_beat, end_beat):
         bar = bars[int(b // 4)]
         root, tones = CHORDS[bar]
         t0 = b * BEAT
+        if beat_in_bar == 0:
+            held = reed([midi_hz(m) for m in tones], BEAT * 4 + 0.08, sustain=True)
+            tb = np.arange(len(held)) / SR
+            breath = 0.75 + 0.25 * sum(np.exp(-np.clip(tb - k * BEAT, 0, None) / 0.2) * (tb >= k * BEAT)
+                                       * (1.0 if k % 2 == 0 else 0.6) for k in range(4))
+            place(box, held * breath * 0.35, t0)
         if beat_in_bar in (0, 2):
             place(stomp_l, stomp * (1.0 if beat_in_bar == 0 else 0.8), t0)
-            bass = root if beat_in_bar == 0 else root + 7  # oom: root, then the fifth
-            place(box, reed([midi_hz(bass - 12), midi_hz(bass)], BEAT * 0.8) * 0.9, t0)
+            bass = root if beat_in_bar == 0 else root + 7  # root, then the fifth
+            place(box, reed([midi_hz(bass - 12), midi_hz(bass)], BEAT * 2 + 0.04, sustain=True) * 0.38, t0)
         else:
             for k in range(4):  # a few crew members clapping, never quite together
                 clap = bp(RNG.standard_normal(int(0.12 * SR)), 900, 3500) * np.exp(-np.arange(int(0.12 * SR)) / SR / 0.025)
                 place(clap_l, clap * RNG.uniform(0.5, 1.0), t0 + RNG.normal(0, 0.008))
-            place(box, reed([midi_hz(m) for m in tones], BEAT * 0.45) * 0.75, t0)  # pah
-        place(box, reed([midi_hz(m) for m in tones], BEAT * 0.25) * 0.35, t0 + BEAT / 2)  # off-beat lift
         b += 1
     # a final chord to land on
     place(box, reed([midi_hz(m) for m in [38, 50, 54, 57, 62]], BEAT * 4) * 1.2, end_beat * BEAT)
