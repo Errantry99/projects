@@ -86,3 +86,68 @@ paused fixed-step clock, so every run is deterministic. One closed-loop
 keyboard rider plays a whole session and has to score. The suite also covers
 warning lead time and noise, measured sound output, multi-touch, keyboard
 navigation of the menus, and HUD layout on five screen sizes.
+
+## derwent crossing
+
+`derwent.html` — a 3D prototype of Wing Ding without the wing: cross the Derwent
+at Hobart on a pump foil. One self-contained HTML file: WebGL 2, no network
+requests, no external assets, nothing to install.
+
+Lie on the board and paddle, pop up once you're fast enough, then pump to stay
+on foil. Wind chop and the Bellerive ferry's wake are free energy. Fall off and
+you're back on your belly, paddling.
+
+| Keys | |
+| --- | --- |
+| `Space` | paddle (lying down) or pump (standing), one stroke per press |
+| `E` / `Shift` | pop up: hold to get to your knees, release to stand |
+| `W` `S` / `↑` `↓` | lean forward / back |
+| `A` `D` / `←` `→` | weight left / right: steer, carve, balance |
+| `C`, `P` / `Esc`, `R`, `Q`, `M` | camera (chase, underwater cutaway, drone), pause, restart, quit to title (from pause), sound |
+
+Gamepads work too: left stick leans, either trigger strokes, A pops up, Y
+changes camera, Start pauses, and the pad rumbles with each stroke and when a
+wave lifts your tail.
+
+- **Events.** The Crossing (Sandy Bay to Bellerive, against the clock), Ferry
+  Wake (90 s to ride the ferry's wake as far as you can) and Paddle-up (3 min of
+  pop-up and pumping practice). Each runs in Glassy dawn, Sea breeze or Westerly
+  conditions, and the best result per event and condition is kept.
+- **Prone.** Paddle strokes are force pulses that weaken as you speed up, so
+  a steady 0.5–0.7 s rhythm tops out just past pop-up speed (2.4 m/s) on flat
+  water. Mashing or lazy strokes never get there. Catching a bump does, easily.
+- **The pop-up.** Hold, then release. Let go too soon and you slip off. Pop up
+  too slowly and the board sinks. Hold too long and you stand up late.
+- **Standing.** Wing Ding's foil (lift, stall, drag, pitch that follows your
+  lean, roll as an inverted pendulum), on a bigger paddle-up foil with no wing.
+  Banking the foil carves a turn, and the carve helps hold you up.
+- **Waves.** The board measures its height against the actual surface, not
+  flat water. Gravity along the face pushes you on, and rising water under the
+  foil adds lift. Riding the ferry's wake with no pumping glides several times
+  as far as on flat water. The chop swells in sets. The HUD calls sets and
+  wakes before they reach you.
+- **The river.** Stylised from the real shoreline, with distances shrunk to 45%
+  (`CONFIG.mapScale`). It has kunanyi, the Tasman Bridge, Wrest Point, the
+  ferry on a timetable between Brooke Street Pier and Bellerive, moored yachts,
+  channel markers, a ship at the wharf and a shelving bottom near the shore.
+  The landmarks are approximate.
+
+The simulation lives in its own `<script id="derwent-sim">` block with no DOM in
+it: the page drives it, and so can node. That block is what a C++ port (for an
+Unreal version) would start from. Every tuning constant is in its `CONFIG`.
+The water shader sums exactly the same waves as the physics. `window.derwent`
+is a debug handle: set `derwent.manual = true` to stop the clock, then
+`derwent.step(n)` advances it.
+
+### Acceptance checks
+
+```
+node derwent.qa.mjs                  # every check, D0–D10
+SHOTS=shots node derwent.qa.mjs      # …and save screenshots
+```
+
+D0 runs the simulation headless in node. The rest drive the page with real key
+presses on the paused fixed-step clock: paddling rhythm, the pop-up, a
+closed-loop keyboard rider that pumps onto the foil and stays up, breach
+warnings, waves as free energy, carving, the ferry, the shallows, finishing a
+crossing, determinism, and HUD layout on five screen sizes.

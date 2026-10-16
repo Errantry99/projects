@@ -37,3 +37,6 @@ jobs:
 
       - name: Wing Ding acceptance checks (W1-W8)
         run: node wingding.qa.mjs
+
+      - name: Derwent Crossing acceptance checks (D0-D10)
+        run: node derwent.qa.mjs
