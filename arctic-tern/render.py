@@ -1,5 +1,5 @@
 """Render frames from a built .blend (build/arctic_tern.blend, or build/$BLEND.blend into build/$BLEND/).
-    python render.py all [start] [spp]    -> build/frames/####.png (full film)
+    python render.py all [start] [spp] [end] -> build/frames/####.png (full film)
     python render.py stills 50 16 [f,..]  -> 24 stills at 50% res, 16 samples, plus a contact sheet
     python render.py frames 121,205 100   -> chosen frames, timed"""
 import os
@@ -25,6 +25,8 @@ if mode == "all":
     start = int(sys.argv[2]) if len(sys.argv) > 2 else 1
     scene.cycles.samples = int(sys.argv[3]) if len(sys.argv) > 3 else 16
     scene.frame_start = start
+    if len(sys.argv) > 4:
+        scene.frame_end = int(sys.argv[4])
     bpy.ops.render.render(animation=True)
     sys.exit(0)
 
