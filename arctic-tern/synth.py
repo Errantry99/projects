@@ -234,3 +234,66 @@ def fiddle(names, step=0.3):
     return np.concatenate(out) * 0.28
 
 
+# ---------------------------------------------------------------- the series theme and score helpers
+# The Tern's theme (original): (eighth-note offset, note, length in eighths), two-second bars at 120 BPM.
+THEME = [(0, "D4", 2), (2, "F4", 1), (3, "A4", 1), (4, "G4", 1), (5, "F4", 1), (6, "E4", 2),
+         (8, "F4", 2), (10, "A4", 1), (11, "D5", 1), (12, "C5", 1), (13, "A4", 3),
+         (16, "Bb4", 2), (18, "A4", 1), (19, "G4", 1), (20, "F4", 1), (21, "E4", 1), (22, "D4", 2),
+         (24, "E4", 1), (25, "F4", 1), (26, "G4", 1), (27, "A4", 1), (28, "D4", 4)]
+MAJOR = {"F": "F#", "C": "C#", "Bb": "B"}
+
+
+def major(n):
+    return MAJOR.get(n[:-1], n[:-1]) + n[-1]
+
+
+def lead(f, dur, vib=0.008):
+    """A bowed lead: detuned saws with delayed vibrato."""
+    t = tl(dur)
+    fr = f * (1 + vib * np.sin(2 * np.pi * 5.5 * t) * np.clip(t / 0.25, 0, 1))
+    ph = np.cumsum(fr) / SR
+    y = (2 * (ph % 1) - 1) + 0.6 * (2 * ((ph * 1.003) % 1) - 1)
+    return lp(y, 2600) * env(len(t), 0.04, min(0.12, dur / 3)) * 0.22
+
+
+def play(melody, t0, inst, step=0.25, up=0, conv=lambda n: n, bars=None, pan=0.0, gain=1.0):
+    for off, nm, ln in melody:
+        if bars is not None and off >= bars * 8:
+            break
+        n = conv(nm)
+        f = note(n) * 2 ** up
+        add(inst(f, ln * step), t0 + off * step, pan, gain)
+
+
+def tremolo(sig, rate=12):
+    return sig * (0.6 + 0.4 * np.sin(2 * np.pi * rate * tl(len(sig) / SR)))
+
+
+def wind(dur):
+    t = tl(dur)
+    n = noise(dur)
+    y = bp(n, 300, 1400) * (0.6 + 0.4 * np.sin(2 * np.pi * t / 4.3)) + bp(n, 1500, 3500) * 0.25 * (0.5 + 0.5 * np.sin(2 * np.pi * t / 2.9))
+    return y * env(len(t), dur * 0.4, dur * 0.3) * 0.25
+
+
+def knock():
+    t = tl(0.12)
+    return (bp(noise(0.12), 800, 2500) * np.exp(-t * 60) + np.sin(2 * np.pi * 210 * t) * np.exp(-t * 45)) * 0.7
+
+
+def flaps(t0, n, rate=0.13, pan=0.0, gain=0.5):
+    for k in range(n):
+        add(lp(noise(0.08), 900) * env(int(0.08 * SR), 0.02, 0.05) * 0.4, t0 + k * rate, pan, gain, "fx")
+
+
+def chord_bed(t0, chords, step=1.0):
+    """120 BPM pizzicato bed: root on the beat, chord tones on the off-beats, a shaker in between."""
+    for k, (root, tones) in enumerate(chords):
+        tc = t0 + k * step
+        for e in range(int(step / 0.25)):
+            te = tc + e * 0.25
+            if e % 2 == 0:
+                add(pluck(note(root), 0.35, 0.4), te, -0.15, 0.8)
+            else:
+                add(pluck(note(tones[e % len(tones)]), 0.3, 0.5), te, 0.15, 0.4)
+            add(shaker(), te + 0.125, 0.4, 0.8)

@@ -3,8 +3,10 @@
 A 12-second looping character film: the *Prompt Pack: Pixar to Clawd* formula rewritten for a
 polar voyage. The prompt is in [PROMPT.md](PROMPT.md); the film is `arctic_tern.mp4`.
 
-**Episode 1: The Stowaway** (60 s) is the next part: see [EPISODE1.md](EPISODE1.md). The intro and
-the episode share `world.py` (models, materials, lights) and `synth.py` (instruments and effects).
+**Episode 1: The Stowaway** (60 s) is the next part: see [EPISODE1.md](EPISODE1.md).
+**Episode 2: The Whale** (60 s) follows: see [EPISODE2.md](EPISODE2.md).
+The intro and the episodes share `world.py` (models, materials, lights), `synth.py` (instruments,
+effects and the series theme) and `episode_post.py` (titles, fades, encode).
 
 ## Run it
 
