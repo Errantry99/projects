@@ -415,6 +415,7 @@
     bpmMin: 70,                      // derived tempo folded into this range (low end)
     bpmMax: 110,                     // derived tempo folded into this range (high end)
     bpmSnap: 5,                      // derived tempo snapped to this grid
+    bpmHysteresis: 1,                // …and only moved once it is a whole grid step away
     bpmDefault: 90,                  // tempo before enough samples exist
     tempoGlideMs: 4000,              // time to glide from one tempo to the next
 
@@ -667,6 +668,7 @@
     bpm: CONFIG.bpmDefault,
     bpmTarget: CONFIG.bpmDefault,
     bpmFrom: CONFIG.bpmDefault,
+    bpmMeasured: false,              // false until the first tempo comes from real typing
     glideStart: -1,
     regSum: 0,
     regCount: 0,
@@ -678,6 +680,7 @@
       this.gainTarget = 0;
       this.gain = 0;
       this.bpm = this.bpmTarget = this.bpmFrom = CONFIG.bpmDefault;
+      this.bpmMeasured = false;
       this.glideStart = -1;
       this.regSum = 0;
       this.regCount = 0;
@@ -724,7 +727,10 @@
         while (bpm < CONFIG.bpmMin) bpm *= 2;
         bpm = clamp(bpm, CONFIG.bpmMin, CONFIG.bpmMax);
         var snapped = clamp(Math.round(bpm / CONFIG.bpmSnap) * CONFIG.bpmSnap, CONFIG.bpmMin, CONFIG.bpmMax);
-        if (snapped !== this.bpmTarget) {
+        // a steady typist sitting near a grid boundary would otherwise flip between two tempos
+        var settled = this.bpmMeasured && Math.abs(bpm - this.bpmTarget) <= CONFIG.bpmHysteresis * CONFIG.bpmSnap;
+        if (n >= CONFIG.ikiMinSamples) this.bpmMeasured = true;
+        if (snapped !== this.bpmTarget && !settled) {
           this.bpmFrom = this.bpm;
           this.bpmTarget = snapped;
           this.glideStart = now;
@@ -905,6 +911,9 @@
       : clamp(vw * anchor - (cx + cw / 2), vw - colWidth - gutter, gutter);
     if (view.txReady && dtMs > 0) {
       view.tx += (targetTx - view.tx) * (1 - Math.exp(-dtMs / CONFIG.followTauMs));
+      // a zoom change moves the line's limits faster than the glide follows
+      // (on slow frames, by hundreds of pixels): keep it inside the gutter anyway
+      if (colWidth > vw) view.tx = clamp(view.tx, vw - colWidth - gutter, gutter);
       // the glide may lag, but never far enough to carry the caret off the frame
       view.tx = clamp(view.tx, gutter - cx - cw, vw - gutter - cx);
     } else {
